@@ -6,7 +6,6 @@
 // Stdin payload:
 //   {
 //     "prompt": string,
-//     "mode":   "fast" | "balanced" | "aivana_mmi",
 //     "output_shape": "auto" | "text" | "recommendation" | ...,
 //     "api_base": "http://localhost:8088",
 //     "api_key":  "ai_live_..." | null
@@ -51,7 +50,6 @@ async function readStdin() {
 
   try {
     const result = await ai.generate(payload.prompt, {
-      mode: payload.mode || "fast",
       outputShape: payload.output_shape || "auto",
     });
     process.stdout.write(JSON.stringify({ ok: true, via: "node-sdk", result }));

@@ -1,6 +1,8 @@
 // Type definitions for @aivana/sdk
 
-export type Mode = "fast" | "balanced" | "aivana_mmi";
+/** Generation is a single tier. The engine's own complexity gate decides
+ *  single-model vs. multi-model panel per request — there is nothing to select. */
+export type Mode = "aivana_mmi";
 export type OutputShape =
   | "auto"
   | "text"

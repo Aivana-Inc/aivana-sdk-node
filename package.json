@@ -27,7 +27,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "keywords": ["ai", "llm", "intelligence", "api", "aivana"],
   "license": "Apache-2.0"

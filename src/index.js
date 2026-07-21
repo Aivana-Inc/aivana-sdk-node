@@ -11,8 +11,14 @@
 //     if (chunk.event === "delta") process.stdout.write(chunk.data.text);
 //   }
 //
-// The SDK is fetch-only — runs in Node 18+, Deno, Bun, modern browsers, and
-// edge runtimes. No build step.
+// The SDK is fetch-only and needs no build step — it runs on Node 18+, Deno, Bun,
+// and edge runtimes.
+//
+// SERVER-SIDE ONLY. Authentication is a long-lived API key, so this client belongs
+// on a server you control. Anything shipped to a browser — bundled app, edge
+// function that echoes its config — exposes the key to every visitor via devtools
+// or the network tab, and a leaked key is usable until you revoke it. To call
+// Aivana from a browser, proxy through your own backend and keep the key there.
 
 const DEFAULT_BASE = "http://localhost:8088";
 const DEFAULT_TIMEOUT_MS = 120_000;

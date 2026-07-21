@@ -24,7 +24,11 @@ export interface ChatMessage {
 
 export interface GenerateOptions {
   mode?: Mode;
+  /** Omit to let the engine pick its per-intent default. */
   temperature?: number;
+  /** Ceiling on answer length. Omit to use the engine's depth-derived budget; a
+   *  supplied value can only lower that budget, never raise it. */
+  maxTokens?: number;
   messages?: ChatMessage[];
   previousIntent?: string;
   outputShape?: OutputShape;
@@ -106,7 +110,7 @@ export class Aivana {
   constructor(cfg?: AivanaConfig);
   generate(prompt: string, opts?: GenerateOptions): Promise<GenerateResponse>;
   generateStream(prompt: string, opts?: GenerateOptions): AsyncGenerator<StreamChunk>;
-  chat(opts?: Pick<GenerateOptions, "mode" | "temperature" | "outputShape">): Chat;
+  chat(opts?: Pick<GenerateOptions, "mode" | "temperature" | "maxTokens" | "outputShape">): Chat;
   quotas(): Promise<QuotaResponse>;
 }
 

@@ -70,13 +70,19 @@ export class Aivana {
     return h;
   }
 
-  _body({ prompt, mode = "aivana_mmi", temperature = 0.7, messages, previousIntent, outputShape, metadata }) {
-    const b = { mode, temperature };
+  _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent, outputShape, metadata }) {
+    const b = { mode };
     if (prompt) b.prompt = prompt;
     if (messages) b.messages = messages;
     if (previousIntent) b.previous_intent = previousIntent;
     if (outputShape) b.output_shape = outputShape;
     if (metadata) b.metadata = metadata;
+    // Generation params are OMITTED unless the caller set one. Sending a
+    // client-side default here would make "I didn't choose" indistinguishable
+    // from "I chose this value", and would permanently shadow the engine's
+    // per-intent temperature and depth-derived token budget.
+    if (temperature !== undefined && temperature !== null) b.temperature = temperature;
+    if (maxTokens !== undefined && maxTokens !== null) b.max_tokens = maxTokens;
     return b;
   }
 
@@ -149,10 +155,11 @@ export class Aivana {
 
 /** Stateful multi-turn helper. Tracks messages + previous intent across turns. */
 export class Chat {
-  constructor(client, { mode = "aivana_mmi", temperature = 0.7, outputShape = "auto" } = {}) {
+  constructor(client, { mode = "aivana_mmi", temperature, maxTokens, outputShape = "auto" } = {}) {
     this.client = client;
     this.mode = mode;
     this.temperature = temperature;
+    this.maxTokens = maxTokens;
     this.outputShape = outputShape;
     this.messages = [];
     this._lastIntent = null;
@@ -163,6 +170,7 @@ export class Chat {
     const resp = await this.client.generate(null, {
       mode: this.mode,
       temperature: this.temperature,
+      maxTokens: this.maxTokens,
       outputShape: this.outputShape,
       ...opts,
       messages: this.messages,

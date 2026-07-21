@@ -1,0 +1,34 @@
+{
+  "name": "@aivana/sdk",
+  "version": "0.1.0",
+  "description": "Aivana Intelligence API client (JavaScript / TypeScript).",
+  "type": "module",
+  "main": "src/index.js",
+  "types": "src/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.js",
+      "types": "./src/index.d.ts"
+    }
+  },
+  "files": ["src", "LICENSE", "README.md"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aivana-Inc/aivana-sdk-node.git"
+  },
+  "homepage": "https://github.com/Aivana-Inc/aivana-sdk-node#readme",
+  "bugs": {
+    "url": "https://github.com/Aivana-Inc/aivana-sdk-node/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "keywords": ["ai", "llm", "intelligence", "api", "aivana"],
+  "license": "Apache-2.0"
+}

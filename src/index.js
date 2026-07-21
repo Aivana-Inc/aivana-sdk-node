@@ -1,0 +1,230 @@
+// @aivana/sdk — JavaScript / TypeScript client for the Aivana Intelligence API.
+//
+// Quickstart:
+//   import { Aivana } from "@aivana/sdk";
+//   const aivana = new Aivana({ apiKey: "ai_live_..." });
+//   const r = await aivana.generate("Should we enter the EU market?");
+//   console.log(r.answer);
+//
+// Streaming:
+//   for await (const chunk of aivana.generateStream("Explain CAP theorem")) {
+//     if (chunk.event === "delta") process.stdout.write(chunk.data.text);
+//   }
+//
+// The SDK is fetch-only — runs in Node 18+, Deno, Bun, modern browsers, and
+// edge runtimes. No build step.
+
+const DEFAULT_BASE = "http://localhost:8088";
+const DEFAULT_TIMEOUT_MS = 120_000;
+
+
+/** Custom error mirroring the engine's error envelope shape. */
+export class AivanaError extends Error {
+  constructor(message, { code = "internal_error", requestId = null, status = 0 } = {}) {
+    super(message);
+    this.name = "AivanaError";
+    this.code = code;
+    this.requestId = requestId;
+    this.status = status;
+  }
+}
+export class AuthError extends AivanaError { constructor(m, o) { super(m, o); this.name = "AuthError"; } }
+export class RateLimitError extends AivanaError { constructor(m, o) { super(m, o); this.name = "RateLimitError"; } }
+export class ForbiddenError extends AivanaError { constructor(m, o) { super(m, o); this.name = "ForbiddenError"; } }
+export class InvalidRequestError extends AivanaError { constructor(m, o) { super(m, o); this.name = "InvalidRequestError"; } }
+export class UpstreamError extends AivanaError { constructor(m, o) { super(m, o); this.name = "UpstreamError"; } }
+
+
+function _classify(status, payload) {
+  const err = (payload && payload.error) || {};
+  const opts = { code: err.code || "internal_error", requestId: err.request_id || null, status };
+  const msg = err.message || `request failed (HTTP ${status})`;
+  if (status === 401 || opts.code === "auth") return new AuthError(msg, opts);
+  if (status === 403 || opts.code === "forbidden") return new ForbiddenError(msg, opts);
+  if (status === 429 || opts.code === "rate_limit_exceeded") return new RateLimitError(msg, opts);
+  if (status === 400 || opts.code === "invalid_request") return new InvalidRequestError(msg, opts);
+  if (status === 502 || opts.code === "upstream") return new UpstreamError(msg, opts);
+  return new AivanaError(msg, opts);
+}
+
+
+/** Main client class. */
+export class Aivana {
+  /**
+   * @param {object} cfg
+   * @param {string} [cfg.apiKey]   — X-API-Key for server-to-server use.
+   * @param {string} [cfg.apiBase]  — Engine base URL (default localhost:8088).
+   * @param {number} [cfg.timeoutMs] — Per-request timeout in ms.
+   * @param {object} [cfg.fetch]    — Custom fetch (e.g. for testing).
+   */
+  constructor({ apiKey = null, apiBase = DEFAULT_BASE, timeoutMs = DEFAULT_TIMEOUT_MS, fetch: fetchImpl = null } = {}) {
+    this.apiKey = apiKey;
+    this.apiBase = apiBase.replace(/\/$/, "");
+    this.timeoutMs = timeoutMs;
+    this._fetch = fetchImpl || globalThis.fetch.bind(globalThis);
+  }
+
+  _headers(extra = {}) {
+    const h = { "Content-Type": "application/json", ...extra };
+    if (this.apiKey) h["X-API-Key"] = this.apiKey;
+    return h;
+  }
+
+  _body({ prompt, mode = "aivana_mmi", temperature = 0.7, messages, previousIntent, outputShape, metadata }) {
+    const b = { mode, temperature };
+    if (prompt) b.prompt = prompt;
+    if (messages) b.messages = messages;
+    if (previousIntent) b.previous_intent = previousIntent;
+    if (outputShape) b.output_shape = outputShape;
+    if (metadata) b.metadata = metadata;
+    return b;
+  }
+
+  async _post(path, body, { stream = false, signal = null } = {}) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const userSignal = signal;
+    const onUserAbort = () => controller.abort();
+    if (userSignal) userSignal.addEventListener("abort", onUserAbort, { once: true });
+
+    try {
+      const resp = await this._fetch(this.apiBase + path, {
+        method: "POST",
+        headers: this._headers(),
+        body: JSON.stringify(body),
+        signal: controller.signal,
+        // The SDK authenticates via X-API-Key. Don't pick up browser
+        // session cookies — that path is for the cookie-auth UI and would
+        // trigger CSRF middleware that the SDK has no business satisfying.
+        credentials: "omit",
+      });
+      if (!resp.ok) {
+        let payload = null;
+        try { payload = await resp.json(); } catch { /* fall through */ }
+        throw _classify(resp.status, payload);
+      }
+      if (stream) return resp;       // caller iterates the body
+      return await resp.json();
+    } finally {
+      clearTimeout(timer);
+      if (userSignal) userSignal.removeEventListener("abort", onUserAbort);
+    }
+  }
+
+  /** Sync-style generation. Returns the full GenerateResponse JSON. */
+  async generate(prompt, opts = {}) {
+    return this._post("/v1/generate", this._body({ prompt, ...opts }), { signal: opts.signal });
+  }
+
+  /** Streaming generation. Yields { event, data } chunks. */
+  async *generateStream(prompt, opts = {}) {
+    const resp = await this._post(
+      "/v1/generate:stream",
+      this._body({ prompt, ...opts }),
+      { stream: true, signal: opts.signal },
+    );
+    yield* _parseSSE(resp.body);
+  }
+
+  /** Stateful multi-turn helper. */
+  chat(opts = {}) {
+    return new Chat(this, opts);
+  }
+
+  /** GET /v1/quotas — caller's current limits + counter snapshot. */
+  async quotas() {
+    const resp = await this._fetch(this.apiBase + "/v1/quotas", {
+      headers: this._headers(),
+      credentials: "omit",
+    });
+    if (!resp.ok) {
+      let payload = null;
+      try { payload = await resp.json(); } catch { /* */ }
+      throw _classify(resp.status, payload);
+    }
+    return await resp.json();
+  }
+}
+
+
+/** Stateful multi-turn helper. Tracks messages + previous intent across turns. */
+export class Chat {
+  constructor(client, { mode = "aivana_mmi", temperature = 0.7, outputShape = "auto" } = {}) {
+    this.client = client;
+    this.mode = mode;
+    this.temperature = temperature;
+    this.outputShape = outputShape;
+    this.messages = [];
+    this._lastIntent = null;
+  }
+
+  async send(content, opts = {}) {
+    this.messages.push({ role: "user", content });
+    const resp = await this.client.generate(null, {
+      mode: this.mode,
+      temperature: this.temperature,
+      outputShape: this.outputShape,
+      ...opts,
+      messages: this.messages,
+      previousIntent: this._lastIntent,
+    });
+    this.messages.push({ role: "assistant", content: resp.answer || "" });
+    this._lastIntent = resp.intent ? resp.intent.name : null;
+    return resp;
+  }
+
+  reset() {
+    this.messages = [];
+    this._lastIntent = null;
+  }
+}
+
+
+// ---- SSE parser -----------------------------------------------------------
+
+async function* _parseSSE(stream) {
+  if (!stream) return;
+  // Node fetch + browser fetch both expose a ReadableStream on resp.body.
+  const reader = stream.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buf = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf("\n\n")) >= 0) {
+        const block = buf.slice(0, nl);
+        buf = buf.slice(nl + 2);
+        const evt = _parseSSEBlock(block);
+        if (evt) yield evt;
+      }
+    }
+    if (buf.trim()) {
+      const evt = _parseSSEBlock(buf);
+      if (evt) yield evt;
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* */ }
+  }
+}
+
+
+function _parseSSEBlock(block) {
+  let event = "message";
+  const dataLines = [];
+  for (const raw of block.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+  }
+  if (!dataLines.length) return null;
+  const dataStr = dataLines.join("\n");
+  let data;
+  try { data = JSON.parse(dataStr); } catch { data = { raw: dataStr }; }
+  return { event, data };
+}
+
+
+export default Aivana;

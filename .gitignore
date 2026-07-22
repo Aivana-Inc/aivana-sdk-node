@@ -4,3 +4,7 @@ node_modules/
 .env.*
 npm-debug.log*
 .DS_Store
+
+# Internal dev harnesses. They hit a live API, spend real quota, and reference
+# engine-side dev routes — not part of the public SDK.
+scripts/

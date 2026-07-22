@@ -24,6 +24,16 @@ export interface ChatMessage {
   content: string;
 }
 
+/** An inline image for the current turn. Max 6 per request, 8 MiB each (decoded). */
+export interface Attachment {
+  /** One of: image/png, image/jpeg, image/webp, image/gif. */
+  mimeType?: string;
+  /** Accepted as an alias for `mimeType`. */
+  mime_type?: string;
+  /** Raw base64, or a full data: URL ("data:image/png;base64,..."). */
+  data: string;
+}
+
 export interface GenerateOptions {
   mode?: Mode;
   /** Omit to let the engine pick its per-intent default. */
@@ -32,6 +42,8 @@ export interface GenerateOptions {
    *  supplied value can only lower that budget, never raise it. */
   maxTokens?: number;
   messages?: ChatMessage[];
+  /** Images for this turn only — not replayed on later turns. */
+  attachments?: Attachment[];
   previousIntent?: string;
   outputShape?: OutputShape;
   metadata?: Record<string, unknown>;
@@ -110,8 +122,9 @@ export class Aivana {
   apiKey: string | null;
   apiBase: string;
   constructor(cfg?: AivanaConfig);
-  generate(prompt: string, opts?: GenerateOptions): Promise<GenerateResponse>;
-  generateStream(prompt: string, opts?: GenerateOptions): AsyncGenerator<StreamChunk>;
+  /** Pass `null` for `prompt` when supplying `opts.messages` instead. */
+  generate(prompt: string | null, opts?: GenerateOptions): Promise<GenerateResponse>;
+  generateStream(prompt: string | null, opts?: GenerateOptions): AsyncGenerator<StreamChunk>;
   chat(opts?: Pick<GenerateOptions, "mode" | "temperature" | "maxTokens" | "outputShape">): Chat;
   quotas(): Promise<QuotaResponse>;
 }

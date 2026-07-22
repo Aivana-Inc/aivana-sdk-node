@@ -20,7 +20,7 @@
 // or the network tab, and a leaked key is usable until you revoke it. To call
 // Aivana from a browser, proxy through your own backend and keep the key there.
 
-const DEFAULT_BASE = "http://localhost:8088";
+const DEFAULT_BASE = "https://developers.aivana.ai";
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 
@@ -59,7 +59,7 @@ export class Aivana {
   /**
    * @param {object} cfg
    * @param {string} [cfg.apiKey]   — X-API-Key for server-to-server use.
-   * @param {string} [cfg.apiBase]  — Engine base URL (default localhost:8088).
+   * @param {string} [cfg.apiBase]  — API base URL. Defaults to the hosted API.
    * @param {number} [cfg.timeoutMs] — Per-request timeout in ms.
    * @param {object} [cfg.fetch]    — Custom fetch (e.g. for testing).
    */
@@ -76,13 +76,24 @@ export class Aivana {
     return h;
   }
 
-  _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent, outputShape, metadata }) {
+  _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent,
+          outputShape, metadata, attachments }) {
     const b = { mode };
     if (prompt) b.prompt = prompt;
     if (messages) b.messages = messages;
     if (previousIntent) b.previous_intent = previousIntent;
     if (outputShape) b.output_shape = outputShape;
     if (metadata) b.metadata = metadata;
+    // Images for THIS turn. Accepts { mimeType, data } and sends the wire's
+    // snake_case. `data` may be raw base64 or a full data: URL — the server
+    // accepts both. Attachments are per-turn and are never replayed on later
+    // turns, so a follow-up question about the same image must resend it.
+    if (attachments && attachments.length) {
+      b.attachments = attachments.map((a) => ({
+        mime_type: a.mimeType ?? a.mime_type,
+        data: a.data,
+      }));
+    }
     // Generation params are OMITTED unless the caller set one. Sending a
     // client-side default here would make "I didn't choose" indistinguishable
     // from "I chose this value", and would permanently shadow the engine's

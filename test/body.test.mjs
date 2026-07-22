@@ -48,3 +48,20 @@ test("maps camelCase options onto the wire's snake_case", () => {
   assert.equal(b.previous_intent, "code_review");
   assert.equal(b.output_shape, "summary");
 });
+
+// --- attachments -----------------------------------------------------------
+
+test("maps mimeType to the wire's mime_type", () => {
+  const b = body({ prompt: "what is this?", attachments: [{ mimeType: "image/png", data: "AAAA" }] });
+  assert.deepEqual(b.attachments, [{ mime_type: "image/png", data: "AAAA" }]);
+});
+
+test("accepts snake_case mime_type as an alias", () => {
+  const b = body({ prompt: "hi", attachments: [{ mime_type: "image/jpeg", data: "BBBB" }] });
+  assert.equal(b.attachments[0].mime_type, "image/jpeg");
+});
+
+test("omits attachments entirely when none or empty", () => {
+  assert.equal("attachments" in body({ prompt: "hi" }), false);
+  assert.equal("attachments" in body({ prompt: "hi", attachments: [] }), false);
+});

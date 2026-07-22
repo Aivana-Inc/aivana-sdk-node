@@ -1,0 +1,67 @@
+# Manual npm deprecation, run from the Actions tab — no local `npm login`.
+#
+# Uses the same NPM_TOKEN secret as the publish workflow, so deprecating a
+# version never requires npm credentials on anyone's machine.
+#
+#   Actions → Deprecate npm version → Run workflow
+#     version: 0.1.0
+#     message: Deprecated — use 0.2.0 or newer.
+#
+# Leave `message` empty to UNDEPRECATE a version (npm treats an empty string
+# as "clear the deprecation notice").
+
+name: Deprecate npm version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deprecate, e.g. 0.1.0"
+        required: true
+        type: string
+      message:
+        description: "Deprecation notice. Leave empty to UNdeprecate."
+        required: false
+        type: string
+        default: "Deprecated — use the latest version."
+
+permissions:
+  contents: read
+
+jobs:
+  deprecate:
+    runs-on: ubuntu-latest
+
+    steps:
+      # The version is interpolated into a shell command below, so validate it
+      # before it gets there. Also keeps this workflow pointed at our own
+      # package — the token can write to others, this workflow shouldn't.
+      - name: Validate the version input
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          case "$VERSION" in
+            *[!0-9A-Za-z.+-]*|"")
+              echo "refusing suspicious version: $VERSION" >&2; exit 1 ;;
+          esac
+          echo "spec=@aivana/sdk@$VERSION" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Confirm the version exists
+        run: npm view "$spec" version
+
+      - name: Deprecate
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          MESSAGE: ${{ inputs.message }}
+        run: npm deprecate "$spec" "$MESSAGE"
+
+      - name: Show the result
+        run: |
+          sleep 5
+          echo "deprecated field is now:"
+          npm view "$spec" deprecated

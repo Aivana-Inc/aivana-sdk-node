@@ -65,3 +65,15 @@ test("omits attachments entirely when none or empty", () => {
   assert.equal("attachments" in body({ prompt: "hi" }), false);
   assert.equal("attachments" in body({ prompt: "hi", attachments: [] }), false);
 });
+
+// The default base URL is a live dependency, not a constant: 0.3.0 shipped a
+// host with no DNS record, so every caller who omitted `apiBase` hit a DNS
+// failure on their first request. Pin it so a change is deliberate.
+test("defaults apiBase to a host that resolves", () => {
+  assert.equal(new Aivana({ apiKey: "k" }).apiBase, "https://dev-developers.aivana.ai");
+});
+
+test("an explicit apiBase still wins, without a trailing slash", () => {
+  assert.equal(new Aivana({ apiKey: "k", apiBase: "http://127.0.0.1:8088/" }).apiBase,
+    "http://127.0.0.1:8088");
+});

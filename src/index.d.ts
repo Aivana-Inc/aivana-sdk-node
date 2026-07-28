@@ -52,9 +52,9 @@ export interface GenerateOptions {
    *  Additive — Aivana keeps its own instructions and they win on conflict, so this
    *  cannot change what Aivana discloses about how an answer was produced.
    *
-   *  Max 8000 chars, enforced client-side. It is re-sent on every model call behind
-   *  a request (each panel seat, then the synthesizer), so its token cost is
-   *  multiplied rather than added — keep it to what actually changes the answer. */
+   *  Max 8000 chars, enforced client-side. Aivana may re-send it internally more
+   *  than once while answering, so a long system prompt can cost more tokens than
+   *  its length alone suggests — keep it to what actually changes the answer. */
   system?: string;
   signal?: AbortSignal;
 }
@@ -72,30 +72,21 @@ export interface UsageEnvelope {
   credits: number;
 }
 
-export interface StageEnvelope {
-  name: string;
-  ms: number;
-  info: Record<string, unknown>;
-}
-
+/** Exactly the fields /v1/generate returns. Anything absent here is absent at
+ *  runtime — declaring more does not make TypeScript catch the difference, it
+ *  just hands you a typed `undefined`. */
 export interface GenerateResponse {
   id: string;
-  object: "generation";
-  mode: Mode;
-  intent: IntentEnvelope;
-  output_format: string;
-  output_shape: OutputShape;
   answer: string;
+  intent: IntentEnvelope;
   structured: Record<string, unknown> | null;
   structured_error: string | null;
-  confidence: number;
-  model: string;
-  provider: string;
+  /** The Aivana model id (e.g. `["aivana-mmi"]`) — not the models behind it. */
   models_used: string[];
   usage: UsageEnvelope;
   latency_ms: number;
-  stages: StageEnvelope[];
   finish_reason: string;
+  pending_action?: string | null;
 }
 
 export interface StreamChunk {
@@ -103,11 +94,25 @@ export interface StreamChunk {
   data: Record<string, unknown>;
 }
 
+/** `limit` and `pending` are null when the window is unmetered — no plan sets an
+ *  hourly ceiling, so `hour` reports usage only. */
+export interface QuotaCounter {
+  used: number;
+  limit: number | null;
+  pending: number | null;
+}
+
+export interface QuotaWindow {
+  input_tokens: QuotaCounter;
+  output_tokens: QuotaCounter;
+}
+
 export interface QuotaResponse {
-  user_id: string;
-  plan: string;
-  limits: Record<string, number | string[]>;
-  counters: Record<string, Record<string, number>>;
+  windows: {
+    hour: QuotaWindow;
+    day: QuotaWindow;
+    month: QuotaWindow;
+  };
 }
 
 export class AivanaError extends Error {
@@ -145,7 +150,7 @@ export class Aivana {
   /** Pass `null` for `prompt` when supplying `opts.messages` instead. */
   generate(prompt: string | null, opts?: GenerateOptions): Promise<GenerateResponse>;
   generateStream(prompt: string | null, opts?: GenerateOptions): AsyncGenerator<StreamChunk>;
-  chat(opts?: Pick<GenerateOptions, "mode" | "temperature" | "maxTokens" | "outputShape">): Chat;
+  chat(opts?: ChatOptions): Chat;
   quotas(): Promise<QuotaResponse>;
 }
 

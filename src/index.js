@@ -26,7 +26,10 @@
 // or the network tab, and a leaked key is usable until you revoke it. To call
 // Aivana from a browser, proxy through your own backend and keep the key there.
 
-const DEFAULT_BASE = "https://developers.aivana.ai";
+// The apex `developers.aivana.ai` has no DNS record yet, so 0.3.0's default sent
+// every caller who did not pass `apiBase` straight into a DNS failure. Point at
+// the host that actually resolves until that record exists.
+const DEFAULT_BASE = "https://dev-developers.aivana.ai";
 const DEFAULT_TIMEOUT_MS = 120_000;
 // Your own system prompt is ADDITIVE: Aivana keeps its own instructions and they
 // win on conflict, so `system` shapes persona, tone, format and domain focus but
@@ -99,8 +102,8 @@ export class Aivana {
       if (s.length > MAX_SYSTEM_CHARS) {
         throw new InvalidRequestError(
           `system prompt is ${s.length} chars; the maximum is ${MAX_SYSTEM_CHARS}. ` +
-          "It is sent to every model behind a request, so keep it to the persona, " +
-          "format and constraints that actually change the answer.",
+          "Keep it to the persona, format and constraints that actually change " +
+          "the answer.",
           { code: "invalid_request" },
         );
       }
@@ -213,8 +216,8 @@ export class Chat {
     this.maxTokens = maxTokens;
     this.outputShape = outputShape;
     // Sticky for the whole conversation, and therefore RE-SENT ON EVERY TURN — it is
-    // not stored server-side (the API is stateless). A long persona is billed again
-    // on each turn, and on each model behind that turn.
+    // not stored server-side (the API is stateless), so a long persona is billed
+    // again on each turn.
     this.system = system;
     this.messages = [];
     this._lastIntent = null;

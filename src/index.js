@@ -180,7 +180,14 @@ export class Aivana {
     return new Chat(this, opts);
   }
 
-  /** GET /v1/quotas — caller's current limits + counter snapshot. */
+  /**
+   * GET /v1/quotas — tokens used and still available, by hour / day / month.
+   *
+   * Returns `{ windows: { hour|day|month: { input_tokens, output_tokens } } }`,
+   * each carrying `{ used, limit, pending }`. `limit` and `pending` are null
+   * when the window is unmetered — no plan sets an hourly ceiling, so `hour`
+   * reports usage only.
+   */
   async quotas() {
     const resp = await this._fetch(this.apiBase + "/v1/quotas", {
       headers: this._headers(),

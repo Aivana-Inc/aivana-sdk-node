@@ -32,9 +32,9 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 // win on conflict, so `system` shapes persona, tone, format and domain focus but
 // cannot change what Aivana will disclose about how an answer was produced.
 //
-// It is also re-sent on every model call behind a request — each panel seat and the
-// synthesizer — so its token cost is multiplied, not added. Checked here so an
-// oversized prompt fails at the call site instead of after a round trip.
+// Aivana may also re-send it internally more than once while answering, so a long
+// system prompt can cost more tokens than its length alone suggests. Checked here
+// so an oversized prompt fails at the call site instead of after a round trip.
 const MAX_SYSTEM_CHARS = 8000;
 
 

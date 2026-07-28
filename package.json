@@ -1,6 +1,6 @@
 {
   "name": "@aivana/sdk",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Aivana Intelligence API client (JavaScript / TypeScript).",
   "type": "module",
   "main": "src/index.js",

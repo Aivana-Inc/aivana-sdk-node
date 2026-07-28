@@ -102,8 +102,8 @@ export class Aivana {
       if (s.length > MAX_SYSTEM_CHARS) {
         throw new InvalidRequestError(
           `system prompt is ${s.length} chars; the maximum is ${MAX_SYSTEM_CHARS}. ` +
-          "It is sent to every model behind a request, so keep it to the persona, " +
-          "format and constraints that actually change the answer.",
+          "Keep it to the persona, format and constraints that actually change " +
+          "the answer.",
           { code: "invalid_request" },
         );
       }
@@ -216,8 +216,8 @@ export class Chat {
     this.maxTokens = maxTokens;
     this.outputShape = outputShape;
     // Sticky for the whole conversation, and therefore RE-SENT ON EVERY TURN — it is
-    // not stored server-side (the API is stateless). A long persona is billed again
-    // on each turn, and on each model behind that turn.
+    // not stored server-side (the API is stateless), so a long persona is billed
+    // again on each turn.
     this.system = system;
     this.messages = [];
     this._lastIntent = null;

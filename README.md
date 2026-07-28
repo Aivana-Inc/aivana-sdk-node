@@ -39,7 +39,7 @@ That's the whole setup. Your API key is the only required option.
 {
   answer: "...",              // the synthesized response
   intent: { name, confidence },
-  models_used: [...],         // which models contributed
+  models_used: [...],         // the Aivana model id, e.g. ["aivana-mmi"]
   usage: { input_tokens, output_tokens, credits },
   latency_ms: 8421,
   finish_reason: "stop"
@@ -61,8 +61,8 @@ Each chunk is `{ event, data }`. The events you'll care about:
 | event | meaning |
 |---|---|
 | `delta` | a piece of the answer — `data.text` |
-| `stage` | progress update while models are working |
-| `route` | which models were selected |
+| `stage` | progress update while the answer is being produced |
+| `route` | an outcome-level progress checkpoint |
 | `done` | finished — carries `usage` and `finish_reason` |
 | `error` | something failed upstream |
 
@@ -175,7 +175,16 @@ Both work the same on `generate()`, `generateStream()`, and `chat()`.
 ## Quotas
 
 ```js
-const { plan, limits, counters } = await client.quotas();
+const { windows } = await client.quotas();
+
+// Tokens used and still available, per window:
+//   windows.hour  / .day / .month
+//     .input_tokens  { used, limit, pending }
+//     .output_tokens { used, limit, pending }
+//
+// `limit` and `pending` are null when a window is unmetered — no plan sets an
+// hourly ceiling, so `hour` reports usage only.
+console.log(windows.day.input_tokens.used, "of", windows.day.input_tokens.limit);
 ```
 
 ## Errors

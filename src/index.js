@@ -11,6 +11,12 @@
 //     if (chunk.event === "delta") process.stdout.write(chunk.data.text);
 //   }
 //
+// Your own system prompt (persona / tone / format / domain focus):
+//   await aivana.generate("Summarize this contract", {
+//     system: "You are a tax specialist. Answer in bullets. Never give legal advice.",
+//   });
+//   const chat = aivana.chat({ system: "You are a tax specialist." });  // every turn
+//
 // The SDK is fetch-only and needs no build step — it runs on Node 18+, Deno, Bun,
 // and edge runtimes.
 //
@@ -22,6 +28,14 @@
 
 const DEFAULT_BASE = "https://developers.aivana.ai";
 const DEFAULT_TIMEOUT_MS = 120_000;
+// Your own system prompt is ADDITIVE: Aivana keeps its own instructions and they
+// win on conflict, so `system` shapes persona, tone, format and domain focus but
+// cannot change what Aivana will disclose about how an answer was produced.
+//
+// Aivana may also re-send it internally more than once while answering, so a long
+// system prompt can cost more tokens than its length alone suggests. Checked here
+// so an oversized prompt fails at the call site instead of after a round trip.
+const MAX_SYSTEM_CHARS = 8000;
 
 
 /** Custom error mirroring the engine's error envelope shape. */
@@ -77,9 +91,21 @@ export class Aivana {
   }
 
   _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent,
-          outputShape, metadata, attachments }) {
+          outputShape, metadata, attachments, system }) {
     const b = { mode };
     if (prompt) b.prompt = prompt;
+    if (system != null && String(system).trim() !== "") {
+      const s = String(system);
+      if (s.length > MAX_SYSTEM_CHARS) {
+        throw new InvalidRequestError(
+          `system prompt is ${s.length} chars; the maximum is ${MAX_SYSTEM_CHARS}. ` +
+          "It is sent to every model behind a request, so keep it to the persona, " +
+          "format and constraints that actually change the answer.",
+          { code: "invalid_request" },
+        );
+      }
+      b.system = s;
+    }
     if (messages) b.messages = messages;
     if (previousIntent) b.previous_intent = previousIntent;
     if (outputShape) b.output_shape = outputShape;
@@ -154,7 +180,14 @@ export class Aivana {
     return new Chat(this, opts);
   }
 
-  /** GET /v1/quotas — caller's current limits + counter snapshot. */
+  /**
+   * GET /v1/quotas — tokens used and still available, by hour / day / month.
+   *
+   * Returns `{ windows: { hour|day|month: { input_tokens, output_tokens } } }`,
+   * each carrying `{ used, limit, pending }`. `limit` and `pending` are null
+   * when the window is unmetered — no plan sets an hourly ceiling, so `hour`
+   * reports usage only.
+   */
   async quotas() {
     const resp = await this._fetch(this.apiBase + "/v1/quotas", {
       headers: this._headers(),
@@ -172,12 +205,17 @@ export class Aivana {
 
 /** Stateful multi-turn helper. Tracks messages + previous intent across turns. */
 export class Chat {
-  constructor(client, { mode = "aivana_mmi", temperature, maxTokens, outputShape = "auto" } = {}) {
+  constructor(client, { mode = "aivana_mmi", temperature, maxTokens, outputShape = "auto",
+                        system } = {}) {
     this.client = client;
     this.mode = mode;
     this.temperature = temperature;
     this.maxTokens = maxTokens;
     this.outputShape = outputShape;
+    // Sticky for the whole conversation, and therefore RE-SENT ON EVERY TURN — it is
+    // not stored server-side (the API is stateless). A long persona is billed again
+    // on each turn, and on each model behind that turn.
+    this.system = system;
     this.messages = [];
     this._lastIntent = null;
   }
@@ -189,6 +227,7 @@ export class Chat {
       temperature: this.temperature,
       maxTokens: this.maxTokens,
       outputShape: this.outputShape,
+      system: this.system,
       ...opts,
       messages: this.messages,
       previousIntent: this._lastIntent,

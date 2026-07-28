@@ -19,11 +19,12 @@ on:
         description: "Version to deprecate, e.g. 0.1.0"
         required: true
         type: string
+      # No default: a default would refill the box when you clear it, making
+      # the undeprecate path unreachable from the UI.
       message:
         description: "Deprecation notice. Leave empty to UNdeprecate."
         required: false
         type: string
-        default: "Deprecated — use the latest version."
 
 permissions:
   contents: read

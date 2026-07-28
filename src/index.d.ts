@@ -47,6 +47,15 @@ export interface GenerateOptions {
   previousIntent?: string;
   outputShape?: OutputShape;
   metadata?: Record<string, unknown>;
+  /** Your own system prompt: persona, tone, format, domain focus.
+   *
+   *  Additive — Aivana keeps its own instructions and they win on conflict, so this
+   *  cannot change what Aivana discloses about how an answer was produced.
+   *
+   *  Max 8000 chars, enforced client-side. It is re-sent on every model call behind
+   *  a request (each panel seat, then the synthesizer), so its token cost is
+   *  multiplied rather than added — keep it to what actually changes the answer. */
+  system?: string;
   signal?: AbortSignal;
 }
 
@@ -112,8 +121,19 @@ export class RateLimitError extends AivanaError {}
 export class InvalidRequestError extends AivanaError {}
 export class UpstreamError extends AivanaError {}
 
+export interface ChatOptions {
+  mode?: Mode;
+  temperature?: number;
+  maxTokens?: number;
+  outputShape?: OutputShape;
+  /** Applied to every turn. The API is stateless, so it is re-sent (and re-billed)
+   *  on each turn rather than stored server-side. */
+  system?: string;
+}
+
 export class Chat {
   messages: ChatMessage[];
+  system?: string;
   send(content: string, opts?: GenerateOptions): Promise<GenerateResponse>;
   reset(): void;
 }

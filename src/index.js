@@ -26,10 +26,12 @@
 // or the network tab, and a leaked key is usable until you revoke it. To call
 // Aivana from a browser, proxy through your own backend and keep the key there.
 
-// The apex `developers.aivana.ai` has no DNS record yet, so 0.3.0's default sent
-// every caller who did not pass `apiBase` straight into a DNS failure. Point at
-// the host that actually resolves until that record exists.
-const DEFAULT_BASE = "https://dev-developers.aivana.ai";
+// Production. 0.3.0 defaulted here, but the apex had no DNS record, so 0.4.0
+// temporarily pointed at `dev-developers.aivana.ai` to stop every caller who
+// omitted `apiBase` from walking into a DNS failure. The record exists as of
+// 2026-08-12 (`/v1/status` → 200, valid cert), so the default is prod again.
+// Callers who want dev must now pass `apiBase` explicitly.
+const DEFAULT_BASE = "https://developers.aivana.ai";
 const DEFAULT_TIMEOUT_MS = 120_000;
 // Your own system prompt is ADDITIVE: Aivana keeps its own instructions and they
 // win on conflict, so `system` shapes persona, tone, format and domain focus but

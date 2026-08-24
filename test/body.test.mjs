@@ -66,6 +66,71 @@ test("omits attachments entirely when none or empty", () => {
   assert.equal("attachments" in body({ prompt: "hi", attachments: [] }), false);
 });
 
+// --- continue ---------------------------------------------------------------
+//
+// `continue` rides inside `metadata` rather than as its own wire field: the
+// API already forwards `metadata` to the engine untouched, and the engine
+// already treats `metadata.continue` as an explicit continuation signal — so
+// this needs no change on the API or engine side, just the client folding the
+// flag into the object it was already sending.
+
+test("omits metadata entirely when continue is not set and none was passed", () => {
+  assert.equal("metadata" in body({ prompt: "hi" }), false);
+});
+
+test("omits continue when explicitly false", () => {
+  const b = body({ prompt: "hi", continue: false });
+  assert.equal("metadata" in b, false);
+});
+
+test("forwards continue: true inside metadata", () => {
+  const b = body({ prompt: "hi", continue: true });
+  assert.deepEqual(b.metadata, { continue: true });
+});
+
+test("merges continue into caller-supplied metadata rather than replacing it", () => {
+  const b = body({ prompt: "hi", continue: true, metadata: { chat_id: "abc" } });
+  assert.deepEqual(b.metadata, { chat_id: "abc", continue: true });
+});
+
+test("chat.continue() requires a prior cut-off assistant turn", async () => {
+  const client = new Aivana({ apiKey: "k" });
+  const chat = client.chat();
+  await assert.rejects(() => chat.continue(), /call send\(\) first/);
+});
+
+test("chat.continue() sends continue:true and stitches the answer onto the last turn", async () => {
+  const calls = [];
+  const client = new Aivana({
+    apiKey: "k",
+    fetch: async (url, init) => {
+      calls.push(JSON.parse(init.body));
+      return {
+        ok: true,
+        json: async () => ({
+          id: "g2", answer: " world", intent: { name: "chat", confidence: 1, signal: "" },
+          structured: null, structured_error: null, models_used: ["aivana-mmi"],
+          usage: { input_tokens: 1, output_tokens: 1, cached_tokens: 0, credits: 0 },
+          latency_ms: 1, finish_reason: "stop",
+        }),
+      };
+    },
+  });
+  const chat = client.chat();
+  chat.messages.push({ role: "user", content: "say hello" });
+  chat.messages.push({ role: "assistant", content: "hello" });
+
+  const resp = await chat.continue();
+
+  assert.equal(calls[0].metadata.continue, true);
+  assert.deepEqual(calls[0].messages, [
+    { role: "user", content: "say hello" },
+    { role: "assistant", content: "hello" },
+  ]);
+  assert.equal(chat.messages.at(-1).content, "hello world");
+  assert.equal(resp.answer, " world");
+});
+
 // The default base URL is a live dependency, not a constant: 0.3.0 shipped a
 // host with no DNS record, so every caller who omitted `apiBase` hit a DNS
 // failure on their first request. Pin it so a change is deliberate.

@@ -111,6 +111,38 @@ const res = await client.generate(null, {
 });
 ```
 
+## Resuming a cut-off answer
+
+Aivana sizes its own output budget per question, so this should be rare — but if a
+response ever ends with `finish_reason: "length"` (a real provider cutoff, not just
+a long answer), ask it to continue instead of starting a new turn:
+
+```js
+const chat = client.chat();
+const first = await chat.send("Write the full incident postmortem.");
+
+if (first.finish_reason === "length") {
+  const more = await chat.continue();   // resumes exactly where it stopped
+  console.log(more.answer);             // just the continuation text
+}
+```
+
+`chat.continue()` resends the existing history with the previous (truncated)
+assistant turn as-is and appends the new text onto it in place — `chat.messages`
+ends up with one complete answer, not two turns, so the next `send()` sees normal
+history. It requires a prior `send()` whose answer is still the last message.
+
+Managing history yourself? Pass `continue: true` directly, alongside `messages`
+ending on the truncated assistant turn:
+
+```js
+const more = await client.generate(null, { messages, continue: true });
+```
+
+Only set this when you actually mean to resume a cutoff — it's never inferred from
+what a message says, and using it without a truncated answer in `messages` gives
+the engine nothing to continue from.
+
 ## Images
 
 Send images inline with a question — chart screenshots, diagrams, photos of a

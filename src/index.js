@@ -96,7 +96,7 @@ export class Aivana {
   }
 
   _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent,
-          outputShape, metadata, attachments, system }) {
+          outputShape, metadata, attachments, system, continue: continueFlag }) {
     const b = { mode };
     if (prompt) b.prompt = prompt;
     if (system != null && String(system).trim() !== "") {
@@ -114,7 +114,14 @@ export class Aivana {
     if (messages) b.messages = messages;
     if (previousIntent) b.previous_intent = previousIntent;
     if (outputShape) b.output_shape = outputShape;
-    if (metadata) b.metadata = metadata;
+    // `continue` rides inside `metadata` rather than as its own top-level field.
+    // The API's request model already forwards `metadata` to the engine
+    // untouched, and the engine already treats `metadata.continue` as an
+    // explicit continuation signal — so this needs no server-side change on
+    // either side, just this client folding the flag into the object it was
+    // already sending.
+    if (continueFlag) b.metadata = { ...(metadata || {}), continue: true };
+    else if (metadata) b.metadata = metadata;
     // Images for THIS turn. Accepts { mimeType, data } and sends the wire's
     // snake_case. `data` may be raw base64 or a full data: URL — the server
     // accepts both. Attachments are per-turn and are never replayed on later
@@ -239,6 +246,39 @@ export class Chat {
     });
     this.messages.push({ role: "assistant", content: resp.answer || "" });
     this._lastIntent = resp.intent ? resp.intent.name : null;
+    return resp;
+  }
+
+  /**
+   * Resume the last answer after it was cut off (`finish_reason === "length"`).
+   * Rare — Aivana sizes its own output budget, so this is for the occasional
+   * hard provider cutoff, not a normal way to get longer answers.
+   *
+   * Sends the existing history with `continue: true` and no new user turn, then
+   * appends the continuation onto the last assistant message in place (so a
+   * second `continue()` picks up from the full stitched-together answer, and
+   * the next ordinary `send()` sees one complete prior turn, not two).
+   */
+  async continue(opts = {}) {
+    const last = this.messages[this.messages.length - 1];
+    if (!last || last.role !== "assistant") {
+      throw new InvalidRequestError(
+        "chat.continue() needs a cut-off assistant answer to resume — call send() first.",
+        { code: "invalid_request" },
+      );
+    }
+    const resp = await this.client.generate(null, {
+      mode: this.mode,
+      temperature: this.temperature,
+      maxTokens: this.maxTokens,
+      outputShape: this.outputShape,
+      system: this.system,
+      ...opts,
+      messages: this.messages,
+      previousIntent: this._lastIntent,
+      continue: true,
+    });
+    last.content = `${last.content}${resp.answer || ""}`;
     return resp;
   }
 

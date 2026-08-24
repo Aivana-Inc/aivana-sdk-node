@@ -56,6 +56,17 @@ export interface GenerateOptions {
    *  than once while answering, so a long system prompt can cost more tokens than
    *  its length alone suggests — keep it to what actually changes the answer. */
   system?: string;
+  /** Resume an answer cut off by a real provider length limit
+   *  (`finish_reason === "length"`) instead of starting a new turn.
+   *
+   *  Only takes effect when explicitly `true` — never inferred from message
+   *  content — and only makes sense paired with `messages` ending on the
+   *  truncated assistant turn, so the engine knows what to continue. Prefer
+   *  `chat().continue()`, which manages the history for you; set this directly
+   *  only when you manage history yourself. Rare in practice: Aivana sizes its
+   *  own output budget, so this is for the occasional hard cutoff, not a normal
+   *  path to longer answers. */
+  continue?: boolean;
   signal?: AbortSignal;
 }
 
@@ -140,6 +151,11 @@ export class Chat {
   messages: ChatMessage[];
   system?: string;
   send(content: string, opts?: GenerateOptions): Promise<GenerateResponse>;
+  /** Resume the last answer after a real provider cutoff
+   *  (`finish_reason === "length"`). Requires the last turn in history to be
+   *  the truncated assistant answer — call `send()` first. Appends the
+   *  continuation onto that message in place rather than adding a new turn. */
+  continue(opts?: GenerateOptions): Promise<GenerateResponse>;
   reset(): void;
 }
 

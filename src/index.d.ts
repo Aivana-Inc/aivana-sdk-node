@@ -56,6 +56,10 @@ export interface GenerateOptions {
    *  than once while answering, so a long system prompt can cost more tokens than
    *  its length alone suggests — keep it to what actually changes the answer. */
   system?: string;
+  /** The name the assistant presents as ("Acme Copilot"). Renaming is all it
+   *  does: which underlying models produced the answer stays undisclosable, and
+   *  no instruction in `system` can unlock that. Max 64 chars. */
+  assistantName?: string;
   signal?: AbortSignal;
 }
 
@@ -131,6 +135,7 @@ export interface ChatOptions {
   temperature?: number;
   maxTokens?: number;
   outputShape?: OutputShape;
+  assistantName?: string;
   /** Applied to every turn. The API is stateless, so it is re-sent (and re-billed)
    *  on each turn rather than stored server-side. */
   system?: string;

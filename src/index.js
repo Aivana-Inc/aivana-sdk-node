@@ -96,7 +96,7 @@ export class Aivana {
   }
 
   _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent,
-          outputShape, metadata, attachments, system }) {
+          outputShape, metadata, attachments, system, assistantName }) {
     const b = { mode };
     if (prompt) b.prompt = prompt;
     if (system != null && String(system).trim() !== "") {
@@ -111,6 +111,12 @@ export class Aivana {
       }
       b.system = s;
     }
+    // The name the assistant presents as. Separate from `system` because a name
+    // asked for inside a system prompt is only a request the model may or may not
+    // honour (measured at 1-in-3 adoption); this is substituted server-side before
+    // the model sees anything. Renaming is all it grants — which underlying models
+    // answered stays undisclosable.
+    if (assistantName) b.assistant_name = assistantName;
     if (messages) b.messages = messages;
     if (previousIntent) b.previous_intent = previousIntent;
     if (outputShape) b.output_shape = outputShape;

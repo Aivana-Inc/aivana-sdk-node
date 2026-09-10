@@ -45,6 +45,10 @@ export interface GenerateOptions {
   /** Images for this turn only — not replayed on later turns. */
   attachments?: Attachment[];
   previousIntent?: string;
+  /** The action the previous assistant turn offered, from that response's
+   *  `pending_action`. Send it back so a bare "yes" resolves against what was
+   *  actually proposed. `chat()` tracks this for you. */
+  pendingAction?: string;
   outputShape?: OutputShape;
   metadata?: Record<string, unknown>;
   /** Your own system prompt: persona, tone, format, domain focus.
@@ -60,6 +64,20 @@ export interface GenerateOptions {
    *  does: which underlying models produced the answer stays undisclosable, and
    *  no instruction in `system` can unlock that. Max 64 chars. */
   assistantName?: string;
+  /** Whether to ground this request in a live web search.
+   *
+   *  THREE states, not two:
+   *    `true`     always search
+   *    `false`    never search
+   *    *omitted*  Aivana decides from the question (it judges whether the answer
+   *               depends on fresh data)
+   *
+   *  Omitting it is not the same as `false`. On an API key the default is OFF, so
+   *  a search only happens when you ask for one — it is never a surprise on your
+   *  bill. Grounding costs extra tokens and latency, so reach for `true` on
+   *  questions about current events, prices, releases or anything time-sensitive,
+   *  and leave it alone otherwise. */
+  webSearch?: boolean;
   signal?: AbortSignal;
 }
 
@@ -119,10 +137,20 @@ export interface QuotaResponse {
   };
 }
 
+/** One field the API rejected, from the `details` list on a 422. */
+export interface ErrorDetail {
+  loc: string[];
+  msg: string;
+  type: string;
+}
+
 export class AivanaError extends Error {
   code: string;
   requestId: string | null;
   status: number;
+  /** Per-field validation errors on a 422 — which field is wrong, and why.
+   *  Empty on every other error. */
+  details: ErrorDetail[];
 }
 export class AuthError extends AivanaError {}
 export class ForbiddenError extends AivanaError {}
@@ -136,6 +164,20 @@ export interface ChatOptions {
   maxTokens?: number;
   outputShape?: OutputShape;
   assistantName?: string;
+  /** Whether to ground this request in a live web search.
+   *
+   *  THREE states, not two:
+   *    `true`     always search
+   *    `false`    never search
+   *    *omitted*  Aivana decides from the question (it judges whether the answer
+   *               depends on fresh data)
+   *
+   *  Omitting it is not the same as `false`. On an API key the default is OFF, so
+   *  a search only happens when you ask for one — it is never a surprise on your
+   *  bill. Grounding costs extra tokens and latency, so reach for `true` on
+   *  questions about current events, prices, releases or anything time-sensitive,
+   *  and leave it alone otherwise. */
+  webSearch?: boolean;
   /** Applied to every turn. The API is stateless, so it is re-sent (and re-billed)
    *  on each turn rather than stored server-side. */
   system?: string;

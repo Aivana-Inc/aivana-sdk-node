@@ -17,6 +17,13 @@
 //   });
 //   const chat = aivana.chat({ system: "You are a tax specialist." });  // every turn
 //
+// Web search — three states, not a boolean:
+//   await aivana.generate("Latest EU AI Act guidance?", { webSearch: true });   // force
+//   await aivana.generate("Explain quicksort",          { webSearch: false });  // never
+//   await aivana.generate("What changed this quarter?");                        // decide
+// Omitting the field is NOT the same as `false`: omitted lets Aivana judge whether
+// the question needs fresh data, `false` forbids it outright.
+//
 // The SDK is fetch-only and needs no build step — it runs on Node 18+, Deno, Bun,
 // and edge runtimes.
 //
@@ -45,12 +52,17 @@ const MAX_SYSTEM_CHARS = 8000;
 
 /** Custom error mirroring the engine's error envelope shape. */
 export class AivanaError extends Error {
-  constructor(message, { code = "internal_error", requestId = null, status = 0 } = {}) {
+  constructor(message, { code = "internal_error", requestId = null, status = 0,
+                         details = [] } = {}) {
     super(message);
     this.name = "AivanaError";
     this.code = code;
     this.requestId = requestId;
     this.status = status;
+    // The API's per-field validation list on a 422: [{ loc, msg, type }]. It is
+    // the only part of the error that says WHICH field is wrong, so it is kept
+    // rather than collapsed into the one-line message. Empty on every other error.
+    this.details = details;
   }
 }
 export class AuthError extends AivanaError { constructor(m, o) { super(m, o); this.name = "AuthError"; } }
@@ -62,7 +74,8 @@ export class UpstreamError extends AivanaError { constructor(m, o) { super(m, o)
 
 function _classify(status, payload) {
   const err = (payload && payload.error) || {};
-  const opts = { code: err.code || "internal_error", requestId: err.request_id || null, status };
+  const opts = { code: err.code || "internal_error", requestId: err.request_id || null, status,
+                 details: err.details || [] };
   const msg = err.message || `request failed (HTTP ${status})`;
   if (status === 401 || opts.code === "auth") return new AuthError(msg, opts);
   if (status === 403 || opts.code === "forbidden") return new ForbiddenError(msg, opts);
@@ -96,7 +109,8 @@ export class Aivana {
   }
 
   _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent,
-          outputShape, metadata, attachments, system, assistantName }) {
+          outputShape, metadata, attachments, system, assistantName, webSearch,
+          pendingAction }) {
     const b = { mode };
     if (prompt) b.prompt = prompt;
     if (system != null && String(system).trim() !== "") {
@@ -119,6 +133,10 @@ export class Aivana {
     if (assistantName) b.assistant_name = assistantName;
     if (messages) b.messages = messages;
     if (previousIntent) b.previous_intent = previousIntent;
+    // The action the previous assistant turn offered. Sent back so a bare "yes"
+    // resolves against what was actually proposed rather than being re-classified
+    // from three characters of context.
+    if (pendingAction) b.pending_action = pendingAction;
     if (outputShape) b.output_shape = outputShape;
     if (metadata) b.metadata = metadata;
     // Images for THIS turn. Accepts { mimeType, data } and sends the wire's
@@ -137,6 +155,11 @@ export class Aivana {
     // per-intent temperature and depth-derived token budget.
     if (temperature !== undefined && temperature !== null) b.temperature = temperature;
     if (maxTokens !== undefined && maxTokens !== null) b.max_tokens = maxTokens;
+    // Web search is THREE-state, so `false` has to reach the wire. Omitting the
+    // field means "you decide" and is not the same request as `false`, which is
+    // an explicit "never search this one". A truthiness check here would collapse
+    // the two and silently drop every opt-out.
+    if (webSearch !== undefined && webSearch !== null) b.web_search = Boolean(webSearch);
     return b;
   }
 
@@ -217,18 +240,21 @@ export class Aivana {
 /** Stateful multi-turn helper. Tracks messages + previous intent across turns. */
 export class Chat {
   constructor(client, { mode = "aivana_mmi", temperature, maxTokens, outputShape = "auto",
-                        system } = {}) {
+                        system, assistantName, webSearch } = {}) {
     this.client = client;
     this.mode = mode;
     this.temperature = temperature;
     this.maxTokens = maxTokens;
     this.outputShape = outputShape;
+    this.assistantName = assistantName;
+    this.webSearch = webSearch;
     // Sticky for the whole conversation, and therefore RE-SENT ON EVERY TURN — it is
     // not stored server-side (the API is stateless), so a long persona is billed
     // again on each turn.
     this.system = system;
     this.messages = [];
     this._lastIntent = null;
+    this._pendingAction = null;
   }
 
   async send(content, opts = {}) {
@@ -239,18 +265,25 @@ export class Chat {
       maxTokens: this.maxTokens,
       outputShape: this.outputShape,
       system: this.system,
+      assistantName: this.assistantName,
+      webSearch: this.webSearch,
       ...opts,
       messages: this.messages,
       previousIntent: this._lastIntent,
+      pendingAction: this._pendingAction,
     });
     this.messages.push({ role: "assistant", content: resp.answer || "" });
     this._lastIntent = resp.intent ? resp.intent.name : null;
+    // Carry forward only the most recent offer. If this turn made none, the
+    // contract is cleared on the next request.
+    this._pendingAction = resp.pending_action ?? null;
     return resp;
   }
 
   reset() {
     this.messages = [];
     this._lastIntent = null;
+    this._pendingAction = null;
   }
 }
 

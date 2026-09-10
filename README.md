@@ -243,6 +243,7 @@ question. Pass a value when you specifically need to override that.
 | `assistantName` | string | the assistant does not name itself |
 | `webSearch` | boolean | Aivana decides from the question |
 | `temperature` | 0.0–2.0 | chosen per request |
+| `topP` | 0.0–1.0 | each model's own default |
 | `maxTokens` | integer | sized to the question |
 | `outputShape` | see below | `"auto"` |
 | `messages` | array | single-turn |
@@ -289,6 +290,25 @@ Include what changes the answer and nothing else. The 8000-character limit is
 checked client-side, so an oversized prompt throws before the round trip.
 
 ## Web search
+
+### Randomness: `temperature` or `topP`, not both
+
+Both control how varied an answer is; they just do it differently. `temperature`
+reshapes the whole probability distribution, `topP` narrows the pool to the most
+likely tokens whose probabilities add up to your value.
+
+```js
+await client.generate("Extract the invoice number", { topP: 0.1 });      // tight
+await client.generate("Ten campaign taglines", { temperature: 1.2 });    // varied
+```
+
+Set **one** of the two. Sending both is accepted, but you are then steering the
+same thing with two dials and the result is harder to reason about — and for some
+questions Aivana cannot pass both through, in which case `topP` wins and the
+temperature is dropped for that call.
+
+`topP: 0` is legal and is the most deterministic setting there is. Omitting the
+option is **not** the same as `1`: omitted leaves the choice to Aivana.
 
 `webSearch` has **three** states, and the third is the useful one:
 

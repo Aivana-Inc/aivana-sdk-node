@@ -78,6 +78,15 @@ export interface GenerateOptions {
    *  questions about current events, prices, releases or anything time-sensitive,
    *  and leave it alone otherwise. */
   webSearch?: boolean;
+  /** Nucleus sampling, 0-1: consider only the most likely tokens whose
+   *  probabilities add up to this. Controls randomness the same way
+   *  `temperature` does, by a different mechanism, so set ONE of the two.
+   *
+   *  Omitting it is NOT the same as 1.0 — omitted leaves every model on its own
+   *  default. `0` is legal and is the most deterministic setting there is.
+   *  Where a model cannot accept both, Aivana honours `topP` and drops the
+   *  temperature for that call. */
+  topP?: number;
   signal?: AbortSignal;
 }
 
@@ -178,6 +187,15 @@ export interface ChatOptions {
    *  questions about current events, prices, releases or anything time-sensitive,
    *  and leave it alone otherwise. */
   webSearch?: boolean;
+  /** Nucleus sampling, 0-1: consider only the most likely tokens whose
+   *  probabilities add up to this. Controls randomness the same way
+   *  `temperature` does, by a different mechanism, so set ONE of the two.
+   *
+   *  Omitting it is NOT the same as 1.0 — omitted leaves every model on its own
+   *  default. `0` is legal and is the most deterministic setting there is.
+   *  Where a model cannot accept both, Aivana honours `topP` and drops the
+   *  temperature for that call. */
+  topP?: number;
   /** Applied to every turn. The API is stateless, so it is re-sent (and re-billed)
    *  on each turn rather than stored server-side. */
   system?: string;

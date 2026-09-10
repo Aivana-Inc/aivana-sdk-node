@@ -17,6 +17,9 @@
 //   });
 //   const chat = aivana.chat({ system: "You are a tax specialist." });  // every turn
 //
+// Randomness: set `temperature` OR `topP`, not both — they control the same thing
+// by different means. Omitting both leaves each model on its own default.
+//
 // Web search — three states, not a boolean:
 //   await aivana.generate("Latest EU AI Act guidance?", { webSearch: true });   // force
 //   await aivana.generate("Explain quicksort",          { webSearch: false });  // never
@@ -110,7 +113,7 @@ export class Aivana {
 
   _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent,
           outputShape, metadata, attachments, system, assistantName, webSearch,
-          pendingAction }) {
+          pendingAction, topP }) {
     const b = { mode };
     if (prompt) b.prompt = prompt;
     if (system != null && String(system).trim() !== "") {
@@ -160,6 +163,10 @@ export class Aivana {
     // an explicit "never search this one". A truthiness check here would collapse
     // the two and silently drop every opt-out.
     if (webSearch !== undefined && webSearch !== null) b.web_search = Boolean(webSearch);
+    // Nucleus sampling. Checked against undefined/null rather than truthiness
+    // because topP: 0 is legal and meaningful — it is the greediest setting the
+    // parameter has, and `if (topP)` would silently discard exactly that.
+    if (topP !== undefined && topP !== null) b.top_p = Number(topP);
     return b;
   }
 
@@ -240,7 +247,7 @@ export class Aivana {
 /** Stateful multi-turn helper. Tracks messages + previous intent across turns. */
 export class Chat {
   constructor(client, { mode = "aivana_mmi", temperature, maxTokens, outputShape = "auto",
-                        system, assistantName, webSearch } = {}) {
+                        system, assistantName, webSearch, topP } = {}) {
     this.client = client;
     this.mode = mode;
     this.temperature = temperature;
@@ -248,6 +255,7 @@ export class Chat {
     this.outputShape = outputShape;
     this.assistantName = assistantName;
     this.webSearch = webSearch;
+    this.topP = topP;
     // Sticky for the whole conversation, and therefore RE-SENT ON EVERY TURN — it is
     // not stored server-side (the API is stateless), so a long persona is billed
     // again on each turn.
@@ -267,6 +275,7 @@ export class Chat {
       system: this.system,
       assistantName: this.assistantName,
       webSearch: this.webSearch,
+      topP: this.topP,
       ...opts,
       messages: this.messages,
       previousIntent: this._lastIntent,

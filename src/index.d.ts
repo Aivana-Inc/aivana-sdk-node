@@ -87,6 +87,13 @@ export interface GenerateOptions {
    *  Where a model cannot accept both, Aivana honours `topP` and drops the
    *  temperature for that call. */
   topP?: number;
+  /** Up to 4 strings. The answer ends where the first one appears, and the
+   *  string itself is not returned.
+   *
+   *  Applied to the answer you receive, so it behaves the same on every
+   *  question — but the text past the marker is still generated and still
+   *  billed. This shapes output; it does not save tokens. */
+  stopSequences?: string[];
   signal?: AbortSignal;
 }
 
@@ -196,6 +203,13 @@ export interface ChatOptions {
    *  Where a model cannot accept both, Aivana honours `topP` and drops the
    *  temperature for that call. */
   topP?: number;
+  /** Up to 4 strings. The answer ends where the first one appears, and the
+   *  string itself is not returned.
+   *
+   *  Applied to the answer you receive, so it behaves the same on every
+   *  question — but the text past the marker is still generated and still
+   *  billed. This shapes output; it does not save tokens. */
+  stopSequences?: string[];
   /** Applied to every turn. The API is stateless, so it is re-sent (and re-billed)
    *  on each turn rather than stored server-side. */
   system?: string;

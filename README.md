@@ -244,6 +244,7 @@ question. Pass a value when you specifically need to override that.
 | `webSearch` | boolean | Aivana decides from the question |
 | `temperature` | 0.0–2.0 | chosen per request |
 | `topP` | 0.0–1.0 | each model's own default |
+| `stopSequences` | string[] | none — the answer ends naturally |
 | `maxTokens` | integer | sized to the question |
 | `outputShape` | see below | `"auto"` |
 | `messages` | array | single-turn |
@@ -309,6 +310,20 @@ temperature is dropped for that call.
 
 `topP: 0` is legal and is the most deterministic setting there is. Omitting the
 option is **not** the same as `1`: omitted leaves the choice to Aivana.
+
+### Stop sequences
+
+Up to four strings. The answer ends where the first one appears, and the string
+itself is not returned.
+
+```js
+await client.generate("Answer, then stop.", { stopSequences: ["###", "\n\nUser:"] });
+```
+
+Useful when you are parsing the answer and know its end marker. Two things to
+know: it shapes the output you receive, so it behaves the same on every question
+— and the text past the marker is still generated and still billed, so this is not
+a way to spend less.
 
 `webSearch` has **three** states, and the third is the useful one:
 

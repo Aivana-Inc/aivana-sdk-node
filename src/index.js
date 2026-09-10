@@ -113,7 +113,7 @@ export class Aivana {
 
   _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent,
           outputShape, metadata, attachments, system, assistantName, webSearch,
-          pendingAction, topP }) {
+          pendingAction, topP, stopSequences }) {
     const b = { mode };
     if (prompt) b.prompt = prompt;
     if (system != null && String(system).trim() !== "") {
@@ -167,6 +167,11 @@ export class Aivana {
     // because topP: 0 is legal and meaningful — it is the greediest setting the
     // parameter has, and `if (topP)` would silently discard exactly that.
     if (topP !== undefined && topP !== null) b.top_p = Number(topP);
+    // Up to 4 strings; the answer ends at the first one and the string itself is
+    // not returned. An empty array means "no stop sequences", same as omitting.
+    if (Array.isArray(stopSequences) && stopSequences.length) {
+      b.stop_sequences = stopSequences.map(String);
+    }
     return b;
   }
 
@@ -247,7 +252,8 @@ export class Aivana {
 /** Stateful multi-turn helper. Tracks messages + previous intent across turns. */
 export class Chat {
   constructor(client, { mode = "aivana_mmi", temperature, maxTokens, outputShape = "auto",
-                        system, assistantName, webSearch, topP } = {}) {
+                        system, assistantName, webSearch, topP,
+                        stopSequences } = {}) {
     this.client = client;
     this.mode = mode;
     this.temperature = temperature;
@@ -256,6 +262,7 @@ export class Chat {
     this.assistantName = assistantName;
     this.webSearch = webSearch;
     this.topP = topP;
+    this.stopSequences = stopSequences;
     // Sticky for the whole conversation, and therefore RE-SENT ON EVERY TURN — it is
     // not stored server-side (the API is stateless), so a long persona is billed
     // again on each turn.
@@ -276,6 +283,7 @@ export class Chat {
       assistantName: this.assistantName,
       webSearch: this.webSearch,
       topP: this.topP,
+      stopSequences: this.stopSequences,
       ...opts,
       messages: this.messages,
       previousIntent: this._lastIntent,

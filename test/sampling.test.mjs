@@ -71,3 +71,35 @@ test("a per-turn topP overrides the conversation default", async () => {
   await spy.chat({ topP: 0.1 }).send("be creative", { topP: 0.95 });
   assert.equal(sent[0].top_p, 0.95);
 });
+
+// stopSequences: the answer ends at the first marker and the marker is dropped.
+// Applied by the engine to the final answer, so it behaves the same whatever
+// produced it — the SDK's only job is to get the list onto the wire.
+
+test("sends stop_sequences when the caller sets them", () => {
+  assert.deepEqual(body({ prompt: "hi", stopSequences: ["###"] }).stop_sequences, ["###"]);
+});
+
+test("omits stop_sequences when absent or empty", () => {
+  assert.equal("stop_sequences" in body({ prompt: "hi" }), false);
+  assert.equal("stop_sequences" in body({ prompt: "hi", stopSequences: [] }), false);
+});
+
+test("coerces entries to strings", () => {
+  assert.deepEqual(body({ prompt: "hi", stopSequences: ["a", 1] }).stop_sequences, ["a", "1"]);
+});
+
+test("chat() keeps stopSequences across turns", async () => {
+  const sent = [];
+  const spy = new Aivana({
+    apiKey: "ai_live_test",
+    fetch: async (_url, init) => {
+      sent.push(JSON.parse(init.body));
+      return { ok: true, json: async () => ({ answer: "ok", intent: { name: "qa" } }) };
+    },
+  });
+  const chat = spy.chat({ stopSequences: ["\n\nUser:"] });
+  await chat.send("first");
+  await chat.send("second");
+  for (const b of sent) assert.deepEqual(b.stop_sequences, ["\n\nUser:"]);
+});

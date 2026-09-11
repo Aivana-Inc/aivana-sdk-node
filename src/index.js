@@ -113,7 +113,7 @@ export class Aivana {
 
   _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent,
           outputShape, metadata, attachments, system, assistantName, webSearch,
-          pendingAction, topP, stopSequences }) {
+          pendingAction, topP, stopSequences, intelligenceTrace }) {
     const b = { mode };
     if (prompt) b.prompt = prompt;
     if (system != null && String(system).trim() !== "") {
@@ -171,6 +171,13 @@ export class Aivana {
     // not returned. An empty array means "no stop sequences", same as omitting.
     if (Array.isArray(stopSequences) && stopSequences.length) {
       b.stop_sequences = stopSequences.map(String);
+    }
+    // Sent only when the caller expressed a preference. An explicit `false` is
+    // forwarded rather than dropped: the server treats it the same as omitting,
+    // but round-tripping the caller's own choice is easier to reason about than
+    // silently collapsing two different requests into one.
+    if (intelligenceTrace !== undefined && intelligenceTrace !== null) {
+      b.intelligence_trace = Boolean(intelligenceTrace);
     }
     return b;
   }
@@ -253,7 +260,7 @@ export class Aivana {
 export class Chat {
   constructor(client, { mode = "aivana_mmi", temperature, maxTokens, outputShape = "auto",
                         system, assistantName, webSearch, topP,
-                        stopSequences } = {}) {
+                        stopSequences, intelligenceTrace } = {}) {
     this.client = client;
     this.mode = mode;
     this.temperature = temperature;
@@ -263,6 +270,7 @@ export class Chat {
     this.webSearch = webSearch;
     this.topP = topP;
     this.stopSequences = stopSequences;
+    this.intelligenceTrace = intelligenceTrace;
     // Sticky for the whole conversation, and therefore RE-SENT ON EVERY TURN — it is
     // not stored server-side (the API is stateless), so a long persona is billed
     // again on each turn.
@@ -284,6 +292,7 @@ export class Chat {
       webSearch: this.webSearch,
       topP: this.topP,
       stopSequences: this.stopSequences,
+      intelligenceTrace: this.intelligenceTrace,
       ...opts,
       messages: this.messages,
       previousIntent: this._lastIntent,

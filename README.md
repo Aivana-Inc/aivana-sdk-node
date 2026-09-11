@@ -245,6 +245,7 @@ question. Pass a value when you specifically need to override that.
 | `temperature` | 0.0–2.0 | chosen per request |
 | `topP` | 0.0–1.0 | each model's own default |
 | `stopSequences` | string[] | none — the answer ends naturally |
+| `intelligenceTrace` | boolean | off — no trace is returned |
 | `maxTokens` | integer | sized to the question |
 | `outputShape` | see below | `"auto"` |
 | `messages` | array | single-turn |
@@ -324,6 +325,58 @@ Useful when you are parsing the answer and know its end marker. Two things to
 know: it shapes the output you receive, so it behaves the same on every question
 — and the text past the marker is still generated and still billed, so this is not
 a way to spend less.
+
+### Intelligence Trace
+
+Aivana decides how much intelligence each request needs. `intelligenceTrace`
+asks it to show its working.
+
+```js
+const resp = await client.generate("Compare Postgres and DynamoDB for a write-heavy API.", {
+  intelligenceTrace: true,
+});
+
+console.log(resp.trace.summary.route);   // "2-model verification"
+for (const step of resp.trace.steps) {
+  console.log(step.at_ms, step.title, "—", step.detail);
+}
+```
+
+```
+1204 Understanding Request — Multi-part request with several considerations
+1240 Fresh Data Check — Existing knowledge is sufficient; no live lookup needed
+1255 Selecting Intelligence Path — A 2-model verification path would provide the most reliable answer
+3980 Establishing Lead Perspective — Primary analysis generated
+6310 Independent Perspectives — A second perspective independently analyzed the request
+6402 Evaluating Perspectives — Perspectives agreed; the answer was confirmed rather than changed
+8120 Final Synthesis — Findings combined into a single coherent answer
+8155 Completed — Response delivered
+```
+
+The trace changes with the route. A simple question shows four steps and says
+additional perspectives were unlikely to improve the answer; a question needing
+current information shows the live-source lookup and the validation against what
+came back. `trace.summary` carries the route, how many perspectives were engaged,
+and whether fresh data was used; `trace.why_this_route` explains the choice in
+plain sentences.
+
+On `generateStream()` the same information arrives as `trace` chunks while the
+answer is being produced, so you can render the run as it happens:
+
+```js
+for await (const chunk of client.generateStream("...", { intelligenceTrace: true })) {
+  if (chunk.event === "delta") process.stdout.write(chunk.data.text);
+  if (chunk.event === "trace" && chunk.data.step) {
+    console.log("\n[", chunk.data.step.status, "]", chunk.data.step.title);
+  }
+}
+```
+
+Each step arrives twice — once as it starts, once as it finishes — followed by a
+single consolidated trace at the end.
+
+The trace describes decisions and outcomes. It does not name the models that
+answered, and it never exposes scoring, thresholds or prompts.
 
 `webSearch` has **three** states, and the third is the useful one:
 

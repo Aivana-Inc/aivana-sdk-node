@@ -103,3 +103,60 @@ test("chat() keeps stopSequences across turns", async () => {
   await chat.send("second");
   for (const b of sent) assert.deepEqual(b.stop_sequences, ["\n\nUser:"]);
 });
+
+// --- Intelligence Trace -----------------------------------------------------
+// The recurring bug in this SDK is an option declared in the types and never
+// forwarded (`output_shape`, `assistantName` and `webSearch` each shipped that
+// way). These assert the wire body, not the type declaration.
+
+test("sends intelligence_trace when the caller asks for one", () => {
+  assert.equal(body({ prompt: "hi", intelligenceTrace: true }).intelligence_trace, true);
+});
+
+test("omits intelligence_trace entirely when the caller says nothing", () => {
+  assert.equal("intelligence_trace" in body({ prompt: "hi" }), false);
+});
+
+test("forwards an explicit false rather than dropping it", () => {
+  assert.equal(body({ prompt: "hi", intelligenceTrace: false }).intelligence_trace, false);
+});
+
+test("treats explicit null as unset, like the other options", () => {
+  assert.equal("intelligence_trace" in body({ prompt: "hi", intelligenceTrace: null }), false);
+});
+
+test("maps camelCase intelligenceTrace onto snake_case intelligence_trace", () => {
+  const b = body({ prompt: "hi", intelligenceTrace: true });
+  assert.equal("intelligenceTrace" in b, false);
+});
+
+test("chat() keeps intelligenceTrace across turns", async () => {
+  const sent = [];
+  const spy = new Aivana({
+    apiKey: "ai_live_test",
+    fetch: async (_url, init) => {
+      sent.push(JSON.parse(init.body));
+      return { ok: true, json: async () => ({ answer: "ok", intent: { name: "qa" } }) };
+    },
+  });
+  const chat = spy.chat({ intelligenceTrace: true });
+  await chat.send("first");
+  await chat.send("second");
+
+  assert.equal(sent.length, 2);
+  for (const b of sent) assert.equal(b.intelligence_trace, true);
+});
+
+test("a per-turn intelligenceTrace overrides the conversation default", async () => {
+  const sent = [];
+  const spy = new Aivana({
+    apiKey: "ai_live_test",
+    fetch: async (_url, init) => {
+      sent.push(JSON.parse(init.body));
+      return { ok: true, json: async () => ({ answer: "ok", intent: { name: "qa" } }) };
+    },
+  });
+  const chat = spy.chat({ intelligenceTrace: true });
+  await chat.send("first", { intelligenceTrace: false });
+  assert.equal(sent[0].intelligence_trace, false);
+});

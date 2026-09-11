@@ -94,6 +94,17 @@ export interface GenerateOptions {
    *  question — but the text past the marker is still generated and still
    *  billed. This shapes output; it does not save tokens. */
   stopSequences?: string[];
+  /** Ask Aivana to explain how it handled this request. Off unless you set it.
+   *
+   *  `resp.trace` then carries the ordered steps it went through (with
+   *  timings), a summary of the route it chose, and why — for example whether a
+   *  second independent perspective was engaged, and whether live sources were
+   *  needed. On `generateStream` the same information arrives as `trace` chunks
+   *  while the answer is being produced.
+   *
+   *  It describes decisions and outcomes, never which underlying models
+   *  answered. */
+  intelligenceTrace?: boolean;
   signal?: AbortSignal;
 }
 
@@ -125,6 +136,10 @@ export interface GenerateResponse {
   latency_ms: number;
   finish_reason: string;
   pending_action?: string | null;
+  /** Present only when `intelligenceTrace` was requested. Left untyped beyond
+   *  this: the step vocabulary is the server's to evolve, and a modelled shape
+   *  here would go stale the first time a step is added. */
+  trace?: Record<string, unknown> | null;
 }
 
 export interface StreamChunk {
@@ -210,6 +225,17 @@ export interface ChatOptions {
    *  question — but the text past the marker is still generated and still
    *  billed. This shapes output; it does not save tokens. */
   stopSequences?: string[];
+  /** Ask Aivana to explain how it handled this request. Off unless you set it.
+   *
+   *  `resp.trace` then carries the ordered steps it went through (with
+   *  timings), a summary of the route it chose, and why — for example whether a
+   *  second independent perspective was engaged, and whether live sources were
+   *  needed. On `generateStream` the same information arrives as `trace` chunks
+   *  while the answer is being produced.
+   *
+   *  It describes decisions and outcomes, never which underlying models
+   *  answered. */
+  intelligenceTrace?: boolean;
   /** Applied to every turn. The API is stateless, so it is re-sent (and re-billed)
    *  on each turn rather than stored server-side. */
   system?: string;

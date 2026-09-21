@@ -104,6 +104,20 @@ export interface GenerateOptions {
    *
    *  It describes decisions and outcomes, never which underlying models
    *  answered. */
+  /** How much intelligence to spend on this request.
+   *
+   *    `"auto"`    Aivana decides from the question itself (the default)
+   *    `"low"`     the fastest, cheapest path: one independent perspective
+   *    `"medium"`  two independent perspectives, compared and reconciled
+   *    `"high"`    three or more, for hard or high-stakes questions
+   *
+   *  It BOUNDS that judgement rather than replacing it — Aivana still reads the
+   *  question and still decides how to answer it. Cost scales roughly with the
+   *  band, so `"high"` on a trivial question spends more for no gain, which is
+   *  exactly the call `"auto"` exists to make.
+   *
+   *  Not a length control: use `maxTokens` for that. */
+  effort?: "auto" | "low" | "medium" | "high";
   intelligenceTrace?: boolean;
   signal?: AbortSignal;
 }
@@ -235,6 +249,20 @@ export interface ChatOptions {
    *
    *  It describes decisions and outcomes, never which underlying models
    *  answered. */
+  /** How much intelligence to spend on this request.
+   *
+   *    `"auto"`    Aivana decides from the question itself (the default)
+   *    `"low"`     the fastest, cheapest path: one independent perspective
+   *    `"medium"`  two independent perspectives, compared and reconciled
+   *    `"high"`    three or more, for hard or high-stakes questions
+   *
+   *  It BOUNDS that judgement rather than replacing it — Aivana still reads the
+   *  question and still decides how to answer it. Cost scales roughly with the
+   *  band, so `"high"` on a trivial question spends more for no gain, which is
+   *  exactly the call `"auto"` exists to make.
+   *
+   *  Not a length control: use `maxTokens` for that. */
+  effort?: "auto" | "low" | "medium" | "high";
   intelligenceTrace?: boolean;
   /** Applied to every turn. The API is stateless, so it is re-sent (and re-billed)
    *  on each turn rather than stored server-side. */

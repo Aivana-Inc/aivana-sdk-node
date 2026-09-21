@@ -113,7 +113,7 @@ export class Aivana {
 
   _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent,
           outputShape, metadata, attachments, system, assistantName, webSearch,
-          pendingAction, topP, stopSequences, intelligenceTrace }) {
+          pendingAction, topP, stopSequences, intelligenceTrace, effort }) {
     const b = { mode };
     if (prompt) b.prompt = prompt;
     if (system != null && String(system).trim() !== "") {
@@ -178,6 +178,13 @@ export class Aivana {
     // silently collapsing two different requests into one.
     if (intelligenceTrace !== undefined && intelligenceTrace !== null) {
       b.intelligence_trace = Boolean(intelligenceTrace);
+    }
+    // Sent only when a band was chosen. Omitting it is what leaves Aivana's own
+    // judgement in charge, so an untouched client sends exactly the body it sent
+    // before this option existed. Normalized here so "High" and "high" are one
+    // request rather than two.
+    if (effort != null && String(effort).trim() !== "") {
+      b.effort = String(effort).trim().toLowerCase();
     }
     return b;
   }
@@ -260,7 +267,7 @@ export class Aivana {
 export class Chat {
   constructor(client, { mode = "aivana_mmi", temperature, maxTokens, outputShape = "auto",
                         system, assistantName, webSearch, topP,
-                        stopSequences, intelligenceTrace } = {}) {
+                        stopSequences, intelligenceTrace, effort } = {}) {
     this.client = client;
     this.mode = mode;
     this.temperature = temperature;
@@ -271,6 +278,7 @@ export class Chat {
     this.topP = topP;
     this.stopSequences = stopSequences;
     this.intelligenceTrace = intelligenceTrace;
+    this.effort = effort;
     // Sticky for the whole conversation, and therefore RE-SENT ON EVERY TURN — it is
     // not stored server-side (the API is stateless), so a long persona is billed
     // again on each turn.
@@ -293,6 +301,7 @@ export class Chat {
       topP: this.topP,
       stopSequences: this.stopSequences,
       intelligenceTrace: this.intelligenceTrace,
+      effort: this.effort,
       ...opts,
       messages: this.messages,
       previousIntent: this._lastIntent,

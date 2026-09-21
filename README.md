@@ -242,6 +242,7 @@ question. Pass a value when you specifically need to override that.
 | `system` | string | no persona — Aivana's own voice |
 | `assistantName` | string | the assistant does not name itself |
 | `webSearch` | boolean | Aivana decides from the question |
+| `effort` | `"auto"`/`"low"`/`"medium"`/`"high"` | `"auto"` — Aivana decides |
 | `temperature` | 0.0–2.0 | chosen per request |
 | `topP` | 0.0–1.0 | each model's own default |
 | `stopSequences` | string[] | none — the answer ends naturally |
@@ -252,6 +253,39 @@ question. Pass a value when you specifically need to override that.
 | `attachments` | array | none |
 
 All of them work the same on `generate()`, `generateStream()` and `chat()`.
+
+## Choose how much intelligence to spend
+
+`effort` is the one option that is about Aivana rather than about a model.
+`temperature`, `topP` and `maxTokens` shape how a model writes; `effort`
+decides how much work goes into the answer in the first place.
+
+```js
+// A lookup you want back fast and cheap.
+await client.generate("What's the default port for Postgres?", { effort: "low" });
+
+// A decision you are going to act on.
+await client.generate(
+  "Should we move billing off Stripe before the Series A?",
+  { effort: "high" },
+);
+```
+
+| band | what happens | when to reach for it |
+|---|---|---|
+| `"auto"` | Aivana judges from the question | the default — leave it alone unless you know better than the question does |
+| `"low"` | the fastest, cheapest path: one independent perspective | lookups, classification, formatting, anything with one right answer |
+| `"medium"` | two independent perspectives, compared and reconciled | contested or subjective questions with a bounded blast radius |
+| `"high"` | three or more perspectives | hard, high-stakes, open-ended questions |
+
+Two things worth knowing:
+
+- **It is a bound, not an instruction.** Aivana still reads the question and
+  still decides how to answer it — `effort` only constrains how far it may go.
+- **It is not a length control.** `"low"` does not mean "short"; use
+  `maxTokens` for that. Cost scales roughly with the band, so `"high"` on a
+  trivial question spends more for no gain — which is exactly the judgement
+  `"auto"` exists to make.
 
 ## Give the assistant a persona
 

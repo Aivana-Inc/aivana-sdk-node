@@ -82,6 +82,47 @@ function _classify(status, payload) {
   return new AivanaError(msg, opts);
 }
 
+// Redirects are never followed (`redirect: "manual"` on every fetch). fetch drops
+// only `Authorization` when a redirect crosses to another host, not a custom
+// header, so following one would hand X-API-Key to wherever the Location points.
+// A 3xx is reported instead, and the key only ever goes to the configured apiBase.
+function _isRedirect(resp) {
+  return resp.type === "opaqueredirect" || (resp.status >= 300 && resp.status < 400);
+}
+
+async function _errorFrom(resp, hasKey) {
+  if (_isRedirect(resp)) {
+    const status = resp.status ? ` (HTTP ${resp.status})` : "";
+    return new AivanaError(
+      `the API answered with a redirect${status}, which the SDK does not follow so ` +
+      "your API key is only sent to the host you configured. Set apiBase to the " +
+      "API's final URL.",
+      { code: "redirect", status: resp.status },
+    );
+  }
+  let payload = null;
+  try { payload = await resp.json(); } catch { /* fall through */ }
+  const err = _classify(resp.status, payload);
+  // A request with no key is still sent (a caller's own proxy may add one), so the
+  // missing key is only named here, once the API has refused it.
+  if (err instanceof AuthError && !hasKey) {
+    err.message += " No API key was set: pass one as new Aivana({ apiKey: " +
+                   "process.env.AIVANA_API_KEY }).";
+  }
+  return err;
+}
+
+// A 200 whose body is not JSON (a proxy's HTML page, a truncated body) is an
+// AivanaError like every other failure, not a bare SyntaxError from resp.json().
+async function _json(resp) {
+  try {
+    return await resp.json();
+  } catch {
+    throw new AivanaError(`the API sent a response that is not valid JSON (HTTP ${resp.status}).`,
+                          { code: "invalid_response", status: resp.status });
+  }
+}
+
 
 /** Main client class. */
 export class Aivana {
@@ -188,14 +229,11 @@ export class Aivana {
         // session cookies — that path is for the cookie-auth UI and would
         // trigger CSRF middleware that the SDK has no business satisfying.
         credentials: "omit",
+        redirect: "manual",          // see _isRedirect
       });
-      if (!resp.ok) {
-        let payload = null;
-        try { payload = await resp.json(); } catch { /* fall through */ }
-        throw _classify(resp.status, payload);
-      }
+      if (!resp.ok) throw await _errorFrom(resp, Boolean(this.apiKey));
       if (stream) return resp;       // caller iterates the body
-      return await resp.json();
+      return await _json(resp);
     } finally {
       clearTimeout(timer);
       if (userSignal) userSignal.removeEventListener("abort", onUserAbort);
@@ -234,13 +272,10 @@ export class Aivana {
     const resp = await this._fetch(this.apiBase + "/v1/quotas", {
       headers: this._headers(),
       credentials: "omit",
+      redirect: "manual",            // see _isRedirect
     });
-    if (!resp.ok) {
-      let payload = null;
-      try { payload = await resp.json(); } catch { /* */ }
-      throw _classify(resp.status, payload);
-    }
-    return await resp.json();
+    if (!resp.ok) throw await _errorFrom(resp, Boolean(this.apiKey));
+    return await _json(resp);
   }
 }
 

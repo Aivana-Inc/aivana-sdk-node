@@ -58,6 +58,28 @@ export const REQUEST_SOURCE = "cli-node";
 export const STDIN_WAIT_MS = 3000;
 
 const DEFAULT_BASE = "https://developers.aivana.ai";
+
+// Text that came from the API (the answer, trace steps, stage labels, error
+// messages) is printed where a terminal will act on control characters: an ESC
+// sequence can retitle the window, recolour or erase what is on screen, plant a
+// disguised link, or on some terminals write to the clipboard. The text being
+// asked about can steer an answer into containing one (`git diff | aivana` on
+// someone else's change), so every C0 and C1 control except tab and newline is
+// dropped before printing. Dropping each ESC on its own also defuses a sequence
+// split across stream chunks: what is left prints as plain text.
+const UNSAFE_CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+
+export function terminalSafe(text) {
+  return String(text).replace(UNSAFE_CONTROLS, "");
+}
+
+// --json output: JSON.stringify already escapes C0 controls but leaves DEL and C1
+// raw. Escaping them too keeps the output free of raw controls and still parses to
+// the same value.
+function jsonSafe(json) {
+  return json.replace(/[\u007f-\u009f]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
 // The Python CLI's timeout. Above the API's own 180 s ceiling for a non-streamed
 // answer (`--json`), which the SDK's 120 s default is not.
 const TIMEOUT_MS = 240_000;
@@ -512,13 +534,15 @@ async function askStreaming(ctx, client, question, options, opts) {
       if (chunk.event === "stage") {
         progress.show(String(data.stage || ""));
       } else if (chunk.event === "delta" && data.text) {
+        const text = terminalSafe(data.text);
+        if (!text) continue;
         if (!answering) {
           answering = true;
           progress.stop();
           if (traceView) traceView.answerStarted = true;
         }
-        out.write(data.text);
-        endsWithNewline = data.text.endsWith("\n");
+        out.write(text);
+        endsWithNewline = text.endsWith("\n");
       } else if (chunk.event === "trace" && traceView) {
         traceView.feed(data);
       } else if (chunk.event === "error") {
@@ -561,7 +585,7 @@ async function askJson(ctx, client, question, options, quiet) {
   } finally {
     progress.stop();
   }
-  ctx.stdout.write(`${JSON.stringify(resp, null, 2)}\n`);
+  ctx.stdout.write(`${jsonSafe(JSON.stringify(resp, null, 2))}\n`);
   return EXIT_OK;
 }
 
@@ -658,6 +682,7 @@ class Progress {
   }
 
   show(label) {
+    label = terminalSafe(label);
     if (!this.enabled || !label) return;
     const line = `${label}…`;
     // Padded to the previous width so a shorter label fully covers a longer one.
@@ -682,7 +707,7 @@ class Progress {
   above(text) {
     const label = this.label;
     this.clear();
-    this.stream.write(`${text}\n`);
+    this.stream.write(`${terminalSafe(text)}\n`);
     this.show(label);
   }
 }
@@ -792,7 +817,7 @@ function note(ctx, message, ...hints) {
 }
 
 function stderrLines(ctx, first, rest) {
-  ctx.stderr.write(`${[first, ...rest.map((line) => `  ${line}`)].join("\n")}\n`);
+  ctx.stderr.write(`${terminalSafe([first, ...rest.map((line) => `  ${line}`)].join("\n"))}\n`);
 }
 
 // How to set the key, in the syntax of the shell the command most likely ran in.

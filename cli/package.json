@@ -1,6 +1,6 @@
 {
   "name": "@aivana/cli",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "The aivana command: ask the Aivana Intelligence API from your terminal.",
   "type": "module",
   "bin": {
@@ -12,7 +12,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@aivana/sdk": "0.6.3"
+    "@aivana/sdk": "0.6.4"
   },
   "repository": {
     "type": "git",

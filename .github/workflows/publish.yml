@@ -45,8 +45,26 @@ jobs:
             exit 1
           fi
 
+      # Both publish steps are safe to re-run: a version that is already on npm is
+      # skipped instead of failing the job. That is what makes a partial release
+      # recoverable. If the SDK goes out and the CLI step then fails (say, a token
+      # without rights on @aivana/cli), fix the cause and re-run this job; npm never
+      # accepts the same version twice, so without the check the re-run would stop
+      # at the SDK step and the CLI could not be released from here at all.
+      #
+      # The check compares the version npm prints rather than its exit code: npm 10
+      # exits 1 for a version that doesn't exist, older npm exits 0 and prints
+      # nothing. If the lookup itself fails, the step publishes anyway, and npm
+      # refuses a duplicate, so the worst case is a loud failure, never a double
+      # publish.
       - name: Publish @aivana/sdk to npm
-        run: npm publish --access public
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "$(npm view "@aivana/sdk@$version" version 2>/dev/null || true)" = "$version" ]; then
+            echo "@aivana/sdk $version is already on npm; skipping."
+          else
+            npm publish --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -54,6 +72,12 @@ jobs:
       # token needs publish rights on @aivana/cli as well as @aivana/sdk.
       - name: Publish @aivana/cli to npm
         working-directory: cli
-        run: npm publish --access public
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "$(npm view "@aivana/cli@$version" version 2>/dev/null || true)" = "$version" ]; then
+            echo "@aivana/cli $version is already on npm; skipping."
+          else
+            npm publish --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

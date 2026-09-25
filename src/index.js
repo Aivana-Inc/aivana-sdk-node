@@ -149,8 +149,8 @@ export class Aivana {
     }
     // Generation params are OMITTED unless the caller set one. Sending a
     // client-side default here would make "I didn't choose" indistinguishable
-    // from "I chose this value", and would permanently shadow the engine's
-    // per-intent temperature and depth-derived token budget.
+    // from "I chose this value", and would permanently override the values
+    // Aivana picks for each request.
     if (temperature !== undefined && temperature !== null) b.temperature = temperature;
     if (maxTokens !== undefined && maxTokens !== null) b.max_tokens = maxTokens;
     // Web search is THREE-state, so `false` has to reach the wire: it means "never

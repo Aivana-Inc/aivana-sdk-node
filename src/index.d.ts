@@ -12,6 +12,12 @@ export type OutputShape =
   | "decision"
   | "extract";
 
+/** How much intelligence to spend. `"auto"` (the default) lets Aivana judge from the
+ *  question; `"low"` is the fastest, cheapest path; `"medium"` compares two
+ *  independent perspectives; `"high"` engages three or more. A bound on Aivana's own
+ *  judgement, not a length control — use `maxTokens` for that. */
+export type Effort = "auto" | "low" | "medium" | "high";
+
 export interface AivanaConfig {
   apiKey?: string;
   apiBase?: string;
@@ -45,8 +51,31 @@ export interface GenerateOptions {
   /** Images for this turn only — not replayed on later turns. */
   attachments?: Attachment[];
   previousIntent?: string;
+  /** The `pending_action` from the previous response, so a bare "yes" resolves
+   *  against what was actually offered. `chat()` passes it for you. */
+  pendingAction?: string;
   outputShape?: OutputShape;
   metadata?: Record<string, unknown>;
+  /** The name the assistant presents as ("Acme Copilot"). Substituted before any
+   *  model sees the prompt, so it always holds — unlike a name asked for in
+   *  `system`. Renaming is all it does. */
+  assistantName?: string;
+  /** THREE states: `true` always searches the web first, `false` never does, and
+   *  omitting it lets Aivana judge whether the question needs fresh data. Omitted is
+   *  not the same as `false`. On an API key the default is off. */
+  webSearch?: boolean;
+  /** How much intelligence to spend on this request. */
+  effort?: Effort;
+  /** Ask Aivana to explain how it handled the request: the response's `trace`, or
+   *  `trace` events on a stream. Off unless set. Describes decisions and outcomes,
+   *  never which underlying models answered. */
+  intelligenceTrace?: boolean;
+  /** Nucleus sampling, 0.0–1.0. Controls randomness like `temperature` does, by a
+   *  different mechanism, so set one or the other. `0` is legal and is sent. */
+  topP?: number;
+  /** Up to four strings; the answer ends where the first one appears, and the
+   *  string itself is not returned. The text past it is still generated and billed. */
+  stopSequences?: string[];
   /** Your own system prompt: persona, tone, format, domain focus.
    *
    *  Additive — Aivana keeps its own instructions and they win on conflict, so this
@@ -98,6 +127,10 @@ export interface GenerateResponse {
   latency_ms: number;
   finish_reason: string;
   pending_action?: string | null;
+  /** The Intelligence Trace when `intelligenceTrace: true` was requested, otherwise
+   *  null: the ordered steps with timings, a summary of the route chosen, and why.
+   *  A plain object on purpose — the step vocabulary is the server's to evolve. */
+  trace?: Record<string, unknown> | null;
 }
 
 export interface StreamChunk {
@@ -126,10 +159,19 @@ export interface QuotaResponse {
   };
 }
 
+/** One entry of a 422's per-field validation list. */
+export interface ErrorDetail {
+  loc?: Array<string | number>;
+  msg?: string;
+  type?: string;
+}
+
 export class AivanaError extends Error {
   code: string;
   requestId: string | null;
   status: number;
+  /** Which fields were wrong, on a validation error (422). Empty otherwise. */
+  details: ErrorDetail[];
 }
 export class AuthError extends AivanaError {}
 export class ForbiddenError extends AivanaError {}
@@ -137,19 +179,18 @@ export class RateLimitError extends AivanaError {}
 export class InvalidRequestError extends AivanaError {}
 export class UpstreamError extends AivanaError {}
 
-export interface ChatOptions {
-  mode?: Mode;
-  temperature?: number;
-  maxTokens?: number;
-  outputShape?: OutputShape;
-  /** Applied to every turn. The API is stateless, so it is re-sent (and re-billed)
-   *  on each turn rather than stored server-side. */
-  system?: string;
-}
+/** Every generation option, applied to every turn; a `send()`'s own options win for
+ *  that turn. The API is stateless, so all of it — a `system` persona included — is
+ *  re-sent (and re-billed) on each turn rather than stored server-side. */
+export type ChatOptions = Omit<
+  GenerateOptions,
+  "messages" | "previousIntent" | "pendingAction" | "continue" | "signal"
+>;
 
 export class Chat {
   messages: ChatMessage[];
-  system?: string;
+  options: ChatOptions;
+  readonly system?: string;
   send(content: string, opts?: GenerateOptions): Promise<GenerateResponse>;
   /** Resume the last answer after a real provider cutoff
    *  (`finish_reason === "length"`). Requires the last turn in history to be

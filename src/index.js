@@ -45,12 +45,17 @@ const MAX_SYSTEM_CHARS = 8000;
 
 /** Custom error mirroring the engine's error envelope shape. */
 export class AivanaError extends Error {
-  constructor(message, { code = "internal_error", requestId = null, status = 0 } = {}) {
+  constructor(message, { code = "internal_error", requestId = null, status = 0, details = [] } = {}) {
     super(message);
     this.name = "AivanaError";
     this.code = code;
     this.requestId = requestId;
     this.status = status;
+    // The API's per-field validation list on a 422: [{ loc, msg, type }]. It is the
+    // only part of the error that says WHICH field is wrong, so it is kept rather
+    // than collapsed into the one-line message. Empty for every other error, and
+    // the same field the Python SDK's errors carry.
+    this.details = details;
   }
 }
 export class AuthError extends AivanaError { constructor(m, o) { super(m, o); this.name = "AuthError"; } }
@@ -62,7 +67,12 @@ export class UpstreamError extends AivanaError { constructor(m, o) { super(m, o)
 
 function _classify(status, payload) {
   const err = (payload && payload.error) || {};
-  const opts = { code: err.code || "internal_error", requestId: err.request_id || null, status };
+  const opts = {
+    code: err.code || "internal_error",
+    requestId: err.request_id || null,
+    status,
+    details: Array.isArray(err.details) ? err.details : [],
+  };
   const msg = err.message || `request failed (HTTP ${status})`;
   if (status === 401 || opts.code === "auth") return new AuthError(msg, opts);
   if (status === 403 || opts.code === "forbidden") return new ForbiddenError(msg, opts);
@@ -96,7 +106,9 @@ export class Aivana {
   }
 
   _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent,
-          outputShape, metadata, attachments, system, continue: continueFlag }) {
+          pendingAction, outputShape, metadata, attachments, system, assistantName,
+          webSearch, topP, stopSequences, intelligenceTrace, effort,
+          continue: continueFlag }) {
     const b = { mode };
     if (prompt) b.prompt = prompt;
     if (system != null && String(system).trim() !== "") {
@@ -113,7 +125,10 @@ export class Aivana {
     }
     if (messages) b.messages = messages;
     if (previousIntent) b.previous_intent = previousIntent;
+    if (pendingAction) b.pending_action = pendingAction;
     if (outputShape) b.output_shape = outputShape;
+    // Renaming is all it does: which underlying models answered stays undisclosable.
+    if (assistantName) b.assistant_name = assistantName;
     // `continue` rides inside `metadata` rather than as its own top-level field.
     // The API's request model already forwards `metadata` to the engine
     // untouched, and the engine already treats `metadata.continue` as an
@@ -138,6 +153,21 @@ export class Aivana {
     // per-intent temperature and depth-derived token budget.
     if (temperature !== undefined && temperature !== null) b.temperature = temperature;
     if (maxTokens !== undefined && maxTokens !== null) b.max_tokens = maxTokens;
+    // Web search is THREE-state, so `false` has to reach the wire: it means "never
+    // search this request", a different instruction from an absent field ("you
+    // decide"). A truthiness check would silently discard every opt-out.
+    if (webSearch !== undefined && webSearch !== null) b.web_search = Boolean(webSearch);
+    // `!= null` for the same reason, though for a different value: topP 0 is legal
+    // and is the most deterministic setting the parameter has.
+    if (topP !== undefined && topP !== null) b.top_p = Number(topP);
+    if (stopSequences && stopSequences.length) b.stop_sequences = stopSequences.map(String);
+    // Sent only when set. An explicit false is still sent: the server treats it as
+    // omitted, but echoing the caller's own choice is easier to reason about.
+    if (intelligenceTrace !== undefined && intelligenceTrace !== null) {
+      b.intelligence_trace = Boolean(intelligenceTrace);
+    }
+    // Normalised so "High" and "high" are one request, not two.
+    if (effort) b.effort = String(effort).trim().toLowerCase();
     return b;
   }
 
@@ -215,37 +245,44 @@ export class Aivana {
 }
 
 
-/** Stateful multi-turn helper. Tracks messages + previous intent across turns. */
+/** Stateful multi-turn helper. Tracks messages, previous intent and the last offer
+ *  across turns. */
 export class Chat {
-  constructor(client, { mode = "aivana_mmi", temperature, maxTokens, outputShape = "auto",
-                        system } = {}) {
+  constructor(client, { outputShape = "auto", ...options } = {}) {
     this.client = client;
-    this.mode = mode;
-    this.temperature = temperature;
-    this.maxTokens = maxTokens;
-    this.outputShape = outputShape;
-    // Sticky for the whole conversation, and therefore RE-SENT ON EVERY TURN — it is
-    // not stored server-side (the API is stateless), so a long persona is billed
-    // again on each turn.
-    this.system = system;
+    // Every option generate() accepts, applied to every turn; a send()'s own options
+    // win for that turn. Same as the Python SDK's `Chat(**options)`. This used to
+    // keep only five options and drop the rest, so `chat({ webSearch: false })`
+    // quietly let Aivana search anyway.
+    //
+    // All of it is RE-SENT ON EVERY TURN — nothing is stored server-side (the API
+    // is stateless), so a long `system` persona is billed again on each turn.
+    this.options = { outputShape, ...options };
     this.messages = [];
     this._lastIntent = null;
+    this._pendingAction = null;
+  }
+
+  /** The conversation's system prompt, if one was set. */
+  get system() {
+    return this.options.system;
   }
 
   async send(content, opts = {}) {
     this.messages.push({ role: "user", content });
     const resp = await this.client.generate(null, {
-      mode: this.mode,
-      temperature: this.temperature,
-      maxTokens: this.maxTokens,
-      outputShape: this.outputShape,
-      system: this.system,
+      ...this.options,
       ...opts,
       messages: this.messages,
       previousIntent: this._lastIntent,
+      pendingAction: this._pendingAction,
     });
     this.messages.push({ role: "assistant", content: resp.answer || "" });
     this._lastIntent = resp.intent ? resp.intent.name : null;
+    // Carry forward only the most recent offer ("want me to apply these fixes?").
+    // A turn that made none clears it, so a later bare "yes" can't resolve against
+    // an offer from three turns ago.
+    this._pendingAction = resp.pending_action || null;
     return resp;
   }
 
@@ -268,11 +305,7 @@ export class Chat {
       );
     }
     const resp = await this.client.generate(null, {
-      mode: this.mode,
-      temperature: this.temperature,
-      maxTokens: this.maxTokens,
-      outputShape: this.outputShape,
-      system: this.system,
+      ...this.options,
       ...opts,
       messages: this.messages,
       previousIntent: this._lastIntent,
@@ -285,6 +318,7 @@ export class Chat {
   reset() {
     this.messages = [];
     this._lastIntent = null;
+    this._pendingAction = null;
   }
 }
 

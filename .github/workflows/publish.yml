@@ -96,15 +96,20 @@ jobs:
       # and later exit 1 for a version that doesn't exist, older npm exits 0 and
       # prints nothing. If the lookup itself fails, the step publishes anyway, and
       # npm refuses a duplicate, so the worst case is a loud failure, never a
-      # double publish. `--provenance` publishes a signed record of the commit and
-      # workflow that built the package, shown on its npm page.
+      # double publish.
+      #
+      # No --provenance flag: npm refuses provenance from a private source
+      # repository (E422, "Only public source repositories are supported"), which
+      # is how the v0.6.1 run failed. Under trusted publishing npm adds provenance
+      # by itself once this repository is public, so nothing needs to change here
+      # if it ever is.
       - name: Publish @aivana/sdk to npm
         run: |
           version="$(node -p "require('./package.json').version")"
           if [ "$(npm view "@aivana/sdk@$version" version 2>/dev/null || true)" = "$version" ]; then
             echo "@aivana/sdk $version is already on npm; skipping."
           else
-            npm publish --access public --provenance
+            npm publish --access public
           fi
 
       # npm can take several minutes to make a new version installable (0.6.0's
@@ -135,5 +140,5 @@ jobs:
           if [ "$(npm view "@aivana/cli@$version" version 2>/dev/null || true)" = "$version" ]; then
             echo "@aivana/cli $version is already on npm; skipping."
           else
-            npm publish --access public --provenance
+            npm publish --access public
           fi

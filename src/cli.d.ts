@@ -19,6 +19,8 @@ export interface CliIO {
   fetch?: typeof fetch;
   /** How long to wait for piped input to start when a question was given. */
   stdinWaitMs?: number;
+  /** Stands in for `process.platform`: picks the shell syntax the key hints show. */
+  platform?: string;
 }
 
 /** Run `aivana ARGV...` and resolve to its exit code. */

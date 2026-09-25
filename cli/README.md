@@ -4,7 +4,7 @@ The `aivana` command: ask the Aivana Intelligence API from your terminal.
 
 ```bash
 npm install -g @aivana/cli     # or run it without installing: npx @aivana/cli "..."
-export AIVANA_API_KEY=ai_live_xxx
+export AIVANA_API_KEY=ai_live_xxx  # Windows PowerShell: $env:AIVANA_API_KEY = "ai_live_xxx"
 aivana "Should we enter the EU market in 2027?"
 ```
 
@@ -26,7 +26,7 @@ aivana "Extract the invoice number and total" --shape extract --json < invoice.t
 |---|---|
 | `--effort auto\|low\|medium\|high` | how much intelligence to spend; `auto` lets Aivana judge |
 | `--shape SHAPE` | answer format: `auto`, `text`, `recommendation`, `summary`, `tradeoffs`, `decision`, `extract` |
-| `--web` / `--no-web` | always / never search the web first; neither lets Aivana decide |
+| `--web` / `--no-web` | always / never search the web first; neither means no search, the default for API keys |
 | `--system TEXT` | your own instructions: persona, tone, format |
 | `--assistant-name NAME` | the name the assistant presents as |
 | `--max-tokens N` | a ceiling on answer length |

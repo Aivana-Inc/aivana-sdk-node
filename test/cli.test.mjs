@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { pathToFileURL } from "node:url";
 
-import { EXIT_FAILED, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main } from "../src/cli.js";
+import { EXIT_AUTH, EXIT_FAILED, EXIT_INTERRUPTED, EXIT_OK, EXIT_USAGE, main } from "../src/cli.js";
 import { capture, fakeApi, sse } from "./support/cli-doubles.mjs";
 
 const KEY = "ai_live_test_not_real";
@@ -76,6 +76,30 @@ test("binary piped input is refused", async () => {
   assert.equal(await main(["What is this?"], streams), EXIT_USAGE);
   assert.ok(streams.stderr.text.includes("isn't text"));
   assert.equal(api.requests.length, 0);
+});
+
+test("on Windows the key hints use PowerShell and Command Prompt syntax", async () => {
+  // Windows shells have no `export`, so showing it there sends people to a command
+  // that fails. The shared suite runs on Linux and pins everything else about these
+  // messages; only the platform-specific line is checked here.
+  const rejected = { status: 401, json: { error: { type: "invalid_api_key",
+    code: "invalid_api_key", message: "The server said no.", request_id: "req_123" } } };
+  for (const [name, response, env] of [
+    ["missing key", ANSWER, {}],
+    ["rejected key", rejected, { AIVANA_API_KEY: KEY }],
+  ]) {
+    const windows = io(fakeApi(response), { env, platform: "win32" });
+    assert.equal(await main(["hi"], windows), EXIT_AUTH, name);
+    assert.ok(windows.stderr.text.includes(
+      '    $env:AIVANA_API_KEY = "ai_live_..."   (PowerShell)\n'), name);
+    assert.ok(windows.stderr.text.includes(
+      "    set AIVANA_API_KEY=ai_live_...        (Command Prompt)\n"), name);
+    assert.ok(!windows.stderr.text.includes("export"), name);
+
+    const mac = io(fakeApi(response), { env, platform: "darwin" });
+    assert.equal(await main(["hi"], mac), EXIT_AUTH, name);
+    assert.ok(mac.stderr.text.includes("    export AIVANA_API_KEY=ai_live_...\n"), name);
+  }
 });
 
 // --- the real process ------------------------------------------------------

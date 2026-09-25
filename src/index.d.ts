@@ -60,9 +60,9 @@ export interface GenerateOptions {
    *  model sees the prompt, so it always holds — unlike a name asked for in
    *  `system`. Renaming is all it does. */
   assistantName?: string;
-  /** THREE states: `true` always searches the web first, `false` never does, and
-   *  omitting it lets Aivana judge whether the question needs fresh data. Omitted is
-   *  not the same as `false`. On an API key the default is off. */
+  /** `true` always searches the web first, `false` never does. Omitted, the API's
+   *  default applies, and for an API key that default is off. `false` still says
+   *  more than omitting: it stays "never" even if the default changes. */
   webSearch?: boolean;
   /** How much intelligence to spend on this request. */
   effort?: Effort;

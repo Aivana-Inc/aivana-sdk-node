@@ -154,8 +154,8 @@ export class Aivana {
     if (temperature !== undefined && temperature !== null) b.temperature = temperature;
     if (maxTokens !== undefined && maxTokens !== null) b.max_tokens = maxTokens;
     // Web search is THREE-state, so `false` has to reach the wire: it means "never
-    // search this request", a different instruction from an absent field ("you
-    // decide"). A truthiness check would silently discard every opt-out.
+    // search this request", a different instruction from an absent field ("apply
+    // the default"). A truthiness check would silently discard every opt-out.
     if (webSearch !== undefined && webSearch !== null) b.web_search = Boolean(webSearch);
     // `!= null` for the same reason, though for a different value: topP 0 is legal
     // and is the most deterministic setting the parameter has.

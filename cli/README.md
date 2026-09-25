@@ -4,7 +4,7 @@ The `aivana` command: ask the Aivana Intelligence API from your terminal.
 
 ```bash
 npm install -g @aivana/cli     # or run it without installing: npx @aivana/cli "..."
-export AIVANA_API_KEY=ai_live_xxx
+export AIVANA_API_KEY=ai_live_xxx  # Windows PowerShell: $env:AIVANA_API_KEY = "ai_live_xxx"
 aivana "Should we enter the EU market in 2027?"
 ```
 

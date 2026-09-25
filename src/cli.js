@@ -205,6 +205,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     stderr: io.stderr ?? process.stderr,
     fetch: io.fetch,
     stdinWaitMs: io.stdinWaitMs ?? STDIN_WAIT_MS,
+    platform: io.platform ?? process.platform,
   };
   let args = [...argv];
 
@@ -326,8 +327,7 @@ async function ask(ctx, opts) {
   const key = (ctx.env.AIVANA_API_KEY || "").trim();
   if (!key) {
     error(ctx, "no API key found.",
-      "Create one in AI Studio > API Keys, then run:",
-      "  export AIVANA_API_KEY=ai_live_...");
+      "Create one in AI Studio > API Keys, then run:", ...setKeyLines(ctx));
     return EXIT_AUTH;
   }
   let apiBase = DEFAULT_BASE;
@@ -584,8 +584,7 @@ function reportApiError(ctx, e, client, jsonMode) {
   let code = EXIT_FAILED;
   if (e instanceof AuthError) {
     code = EXIT_AUTH;
-    hints.push("Create a new key in AI Studio > API Keys, then run:",
-               "  export AIVANA_API_KEY=ai_live_...");
+    hints.push("Create a new key in AI Studio > API Keys, then run:", ...setKeyLines(ctx));
   } else if (e instanceof ForbiddenError) {
     if (e.code === "host_not_allowed") {
       hints.push(`Answers are only served from the developer API host, and ${client.apiBase} ` +
@@ -794,4 +793,16 @@ function note(ctx, message, ...hints) {
 
 function stderrLines(ctx, first, rest) {
   ctx.stderr.write(`${[first, ...rest.map((line) => `  ${line}`)].join("\n")}\n`);
+}
+
+// How to set the key, in the syntax of the shell the command most likely ran in.
+// Windows has no `export`, and nothing reliably tells PowerShell (the default in
+// Windows Terminal) from Command Prompt, so Windows gets both. Command Prompt's
+// form has no quotes on purpose: `set` would keep them as part of the key.
+function setKeyLines(ctx) {
+  if (ctx.platform === "win32") {
+    return ['  $env:AIVANA_API_KEY = "ai_live_..."   (PowerShell)',
+            "  set AIVANA_API_KEY=ai_live_...        (Command Prompt)"];
+  }
+  return ["  export AIVANA_API_KEY=ai_live_..."];
 }

@@ -1,5 +1,24 @@
 name: Publish SDK and CLI
 
+# Publishing a GitHub Release uploads @aivana/sdk, then @aivana/cli, to npm by
+# trusted publishing: npm checks a short-lived identity token that GitHub issues
+# to this job, so no npm token is stored anywhere, and there is nothing to leak
+# or to expire. Each package names this workflow as its trusted publisher on
+# npmjs.com (the package's Settings → Trusted publishing → GitHub Actions):
+#
+#   Organization or user   Aivana-Inc
+#   Repository             aivana-sdk-node
+#   Workflow filename      publish.yml
+#   Environment name       npm
+#   Allowed actions        direct `npm publish` switched on (a setup made after
+#                          September 2026 otherwise allows only `npm stage publish`)
+#
+# npm doesn't check those fields when they are saved. A mismatch shows up here
+# instead, as "Unable to authenticate" (ENEEDAUTH) on the first publish step,
+# before anything is published. npm also can't set up trusted publishing for a
+# package that doesn't exist yet, so a new package's first version has to be
+# published some other way (both packages here first went out with a token).
+
 on:
   release:
     types: [published]
@@ -10,16 +29,36 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Must match "Environment name" in both packages' trusted-publisher settings.
+    # To make every release wait for a person's approval, add required reviewers
+    # to it: repo Settings → Environments → npm.
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write   # lets this job request the identity token npm checks
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      # Trusted publishing needs npm 11.5.1 or newer, which Node 24 ships with.
+      # No dependency cache: a release is built from the tagged commit alone.
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      # A plain explanation beats an authentication error, should a future runner
+      # image ever ship an older npm.
+      - name: Check npm supports trusted publishing
+        run: |
+          have="$(npm --version)"
+          if ! printf '%s\n%s\n' 11.5.1 "$have" | sort --version-sort --check=quiet; then
+            echo "npm $have is too old for trusted publishing, which needs 11.5.1 or newer" >&2
+            exit 1
+          fi
 
       # No dependencies, but this validates the committed lockfile.
       - name: Install dependencies
@@ -47,29 +86,48 @@ jobs:
 
       # Both publish steps are safe to re-run: a version that is already on npm is
       # skipped instead of failing the job. That is what makes a partial release
-      # recoverable. If the SDK goes out and the CLI step then fails (say, a token
-      # without rights on @aivana/cli), fix the cause and re-run this job; npm never
-      # accepts the same version twice, so without the check the re-run would stop
-      # at the SDK step and the CLI could not be released from here at all.
+      # recoverable. If the SDK goes out and a later step then fails (say, the
+      # CLI's trusted-publisher settings don't match), fix the cause and re-run
+      # this job; npm never accepts the same version twice, so without the check
+      # the re-run would stop at the SDK step and the CLI could not be released
+      # from here at all.
       #
       # The check compares the version npm prints rather than its exit code: npm 10
-      # exits 1 for a version that doesn't exist, older npm exits 0 and prints
-      # nothing. If the lookup itself fails, the step publishes anyway, and npm
-      # refuses a duplicate, so the worst case is a loud failure, never a double
-      # publish.
+      # and later exit 1 for a version that doesn't exist, older npm exits 0 and
+      # prints nothing. If the lookup itself fails, the step publishes anyway, and
+      # npm refuses a duplicate, so the worst case is a loud failure, never a
+      # double publish. `--provenance` publishes a signed record of the commit and
+      # workflow that built the package, shown on its npm page.
       - name: Publish @aivana/sdk to npm
         run: |
           version="$(node -p "require('./package.json').version")"
           if [ "$(npm view "@aivana/sdk@$version" version 2>/dev/null || true)" = "$version" ]; then
             echo "@aivana/sdk $version is already on npm; skipping."
           else
-            npm publish --access public
+            npm publish --access public --provenance
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # Second, because it depends on the SDK version published a moment ago. The
-      # token needs publish rights on @aivana/cli as well as @aivana/sdk.
+      # npm can take several minutes to make a new version installable (0.6.0's
+      # SDK took about eight). Publishing the CLI before then opens a window in
+      # which `npm install @aivana/cli` fails, because the exact SDK version it
+      # depends on can't be found yet, so wait for the SDK first. --prefer-online
+      # skips npm's local cache, which could otherwise answer from a stale copy.
+      - name: Wait until @aivana/sdk can be installed
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          for attempt in $(seq 1 60); do
+            if [ "$(npm view "@aivana/sdk@$version" version --prefer-online 2>/dev/null || true)" = "$version" ]; then
+              echo "@aivana/sdk $version is available."
+              exit 0
+            fi
+            echo "Waiting for npm to make @aivana/sdk $version available ($attempt of 60)..."
+            sleep 15
+          done
+          echo "@aivana/sdk $version still isn't available after 15 minutes. Re-run" >&2
+          echo "this job once it is: the SDK step will skip itself." >&2
+          exit 1
+
+      # Last, because it depends on exactly the SDK version published above.
       - name: Publish @aivana/cli to npm
         working-directory: cli
         run: |
@@ -77,7 +135,5 @@ jobs:
           if [ "$(npm view "@aivana/cli@$version" version 2>/dev/null || true)" = "$version" ]; then
             echo "@aivana/cli $version is already on npm; skipping."
           else
-            npm publish --access public
+            npm publish --access public --provenance
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,40 @@
+{
+  "name": "@aivana/cli",
+  "version": "0.6.0",
+  "description": "The aivana command: ask the Aivana Intelligence API from your terminal.",
+  "type": "module",
+  "bin": {
+    "aivana": "bin/aivana.js"
+  },
+  "files": [
+    "bin",
+    "LICENSE",
+    "README.md"
+  ],
+  "dependencies": {
+    "@aivana/sdk": "0.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Aivana-Inc/aivana-sdk-node.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/Aivana-Inc/aivana-sdk-node/tree/main/cli#readme",
+  "bugs": {
+    "url": "https://github.com/Aivana-Inc/aivana-sdk-node/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "cli",
+    "intelligence",
+    "aivana"
+  ],
+  "license": "Apache-2.0"
+}

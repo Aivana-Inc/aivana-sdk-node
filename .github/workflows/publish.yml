@@ -1,4 +1,4 @@
-name: Publish SDK
+name: Publish SDK and CLI
 
 on:
   release:
@@ -30,18 +30,30 @@ jobs:
       - name: Test
         run: npm test
 
-      # Fail loudly if the tag and package.json version disagree, rather than
-      # publishing a version nobody asked for.
-      - name: Check version matches the release tag
+      # Fail loudly if the tag and the versions disagree, rather than publishing a
+      # version nobody asked for. @aivana/cli is released in lockstep with the SDK
+      # and depends on exactly that version, so all four must match.
+      - name: Check versions match the release tag
         run: |
           tag="${GITHUB_REF_NAME#v}"
           pkg="$(node -p "require('./package.json').version")"
-          if [ "$tag" != "$pkg" ]; then
-            echo "release tag ($tag) != package.json version ($pkg)" >&2
+          cli="$(node -p "require('./cli/package.json').version")"
+          dep="$(node -p "require('./cli/package.json').dependencies['@aivana/sdk']")"
+          if [ "$tag" != "$pkg" ] || [ "$tag" != "$cli" ] || [ "$tag" != "$dep" ]; then
+            echo "release tag ($tag), @aivana/sdk ($pkg), @aivana/cli ($cli) and the" >&2
+            echo "CLI's @aivana/sdk dependency ($dep) must all be the same version" >&2
             exit 1
           fi
 
-      - name: Publish to npm
+      - name: Publish @aivana/sdk to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Second, because it depends on the SDK version published a moment ago. The
+      # token needs publish rights on @aivana/cli as well as @aivana/sdk.
+      - name: Publish @aivana/cli to npm
+        working-directory: cli
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

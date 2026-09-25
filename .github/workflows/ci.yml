@@ -34,3 +34,21 @@ jobs:
       - name: Verify the published tarball contents
         if: matrix.node-version == 22
         run: npm pack --dry-run
+
+      # Install @aivana/cli the way users will get it (packed, next to the SDK
+      # version it pins) and run the real binary. Catches a broken bin path or
+      # exports entry that the in-repo tests, which import src/ directly, cannot.
+      - name: The packed @aivana/cli installs and runs
+        if: matrix.node-version == 22
+        run: |
+          out="$(mktemp -d)"
+          npm pack --silent --pack-destination "$out"
+          (cd cli && npm pack --silent --pack-destination "$out")
+          prefix="$(mktemp -d)"
+          npm install --prefix "$prefix" --no-audit --no-fund "$out"/*.tgz
+          got="$("$prefix/node_modules/.bin/aivana" --version)"
+          want="aivana $(node -p "require('./package.json').version")"
+          if [ "$got" != "$want" ]; then
+            echo "got '$got', want '$want'" >&2
+            exit 1
+          fi

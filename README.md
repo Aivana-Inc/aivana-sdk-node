@@ -46,6 +46,22 @@ That's the whole setup. Your API key is the only required option.
 }
 ```
 
+## Command line
+
+For the terminal there is an `aivana` command, published as
+[`@aivana/cli`](cli/README.md):
+
+```bash
+npm install -g @aivana/cli     # or run it without installing: npx @aivana/cli "..."
+export AIVANA_API_KEY=ai_live_xxx
+git diff | aivana "Review this change" --effort high
+```
+
+It is built on this SDK and ships inside it as `@aivana/sdk/cli`, so the two are
+released together. The Python SDK installs the same command, and both pass one
+shared conformance suite, [`conformance/cli.json`](conformance/cli.json), so they
+behave identically.
+
 ## Streaming
 
 Stream tokens as they're produced instead of waiting for the full answer:

@@ -154,3 +154,20 @@ test("errors without a field list carry an empty one", async () => {
     return true;
   });
 });
+
+// A 401 is named as a missing key only when no key was set. The request itself is
+// still sent either way: a caller's own proxy may be the one that adds the key.
+test("a 401 with no apiKey says the key is missing; with one it does not", async () => {
+  const unauthorized = async () => new Response(
+    JSON.stringify({ error: { code: "auth", message: "Authentication required." } }),
+    { status: 401, headers: { "content-type": "application/json" } });
+  let sent = 0;
+  const counting = async (...a) => { sent++; return unauthorized(...a); };
+
+  await assert.rejects(new Aivana({ fetch: counting }).generate("hi"),
+    (err) => err.name === "AuthError" && err.message.includes("No API key was set"));
+  assert.equal(sent, 1, "a keyless request must still be sent");
+
+  await assert.rejects(new Aivana({ apiKey: "ai_live_bad", fetch: unauthorized }).generate("hi"),
+    (err) => err.name === "AuthError" && !err.message.includes("No API key was set"));
+});

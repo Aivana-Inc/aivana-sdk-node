@@ -1,7 +1,7 @@
 // Request-body construction. The contract under test: generation options are
-// OMITTED unless the caller set one, so the engine can apply its own per-intent
-// temperature and depth-derived token budget. A client-side default here would
-// silently shadow both — see _body() in src/index.js.
+// OMITTED unless the caller set one, so Aivana can choose them for each request.
+// A client-side default here would silently override that — see _body() in
+// src/index.js.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";

@@ -1,7 +1,7 @@
 // Type definitions for @aivana/sdk
 
-/** Generation is a single tier. The engine's own complexity gate decides
- *  single-model vs. multi-model panel per request — there is nothing to select. */
+/** Generation is a single tier: Aivana decides how to answer each request, so
+ *  there is nothing to select. */
 export type Mode = "aivana_mmi";
 export type OutputShape =
   | "auto"
@@ -42,10 +42,10 @@ export interface Attachment {
 
 export interface GenerateOptions {
   mode?: Mode;
-  /** Omit to let the engine pick its per-intent default. */
+  /** Omit to let Aivana choose it for each request. */
   temperature?: number;
-  /** Ceiling on answer length. Omit to use the engine's depth-derived budget; a
-   *  supplied value can only lower that budget, never raise it. */
+  /** Ceiling on answer length. Omit to let Aivana size the answer to the question;
+   *  a supplied value can only lower that size, never raise it. */
   maxTokens?: number;
   messages?: ChatMessage[];
   /** Images for this turn only — not replayed on later turns. */

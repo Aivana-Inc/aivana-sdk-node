@@ -228,16 +228,16 @@ and `chat()`) accepts all of them. Omitting one hands that decision to Aivana.
 
 | option | type | when omitted |
 |---|---|---|
-| `webSearch` | boolean | Aivana decides whether the question needs fresh data |
+| `webSearch` | boolean | no search: the default for API keys |
 | `effort` | `"auto"` \| `"low"` \| `"medium"` \| `"high"` | `"auto"`: Aivana judges from the question |
 | `intelligenceTrace` | boolean | no trace |
 | `assistantName` | string | the assistant does not name itself |
 | `topP` | 0.0–1.0 | each model's own default |
 | `stopSequences` | up to 4 strings | the answer ends naturally |
 
-**`webSearch` has three states.** `true` always searches, `false` never does, and
-leaving it out lets Aivana judge, which is not the same as `false`. On an API key
-the default is off, so a search never turns up on your bill unannounced.
+**`webSearch`**: `true` always searches, `false` never does. Left out, the API's
+default applies, and for an API key that is no search, so a search never turns up on
+your bill unannounced. `false` stays "never" even if that default changes.
 
 **`effort`** decides how much intelligence goes into the answer: `"low"` is the
 fastest, cheapest path, `"medium"` compares two independent perspectives, and

@@ -46,6 +46,22 @@ That's the whole setup. Your API key is the only required option.
 }
 ```
 
+## Command line
+
+For the terminal there is an `aivana` command, published as
+[`@aivana/cli`](cli/README.md):
+
+```bash
+npm install -g @aivana/cli     # or run it without installing: npx @aivana/cli "..."
+export AIVANA_API_KEY=ai_live_xxx
+git diff | aivana "Review this change" --effort high
+```
+
+It is built on this SDK and ships inside it as `@aivana/sdk/cli`, so the two are
+released together. The Python SDK installs the same command, and both pass one
+shared conformance suite, [`conformance/cli.json`](conformance/cli.json), so they
+behave identically.
+
 ## Streaming
 
 Stream tokens as they're produced instead of waiting for the full answer:
@@ -63,6 +79,7 @@ Each chunk is `{ event, data }`. The events you'll care about:
 | `delta` | a piece of the answer — `data.text` |
 | `stage` | progress update while the answer is being produced |
 | `route` | an outcome-level progress checkpoint |
+| `trace` | an Intelligence Trace step, when `intelligenceTrace: true` |
 | `done` | finished — carries `usage` and `finish_reason` |
 | `error` | something failed upstream |
 
@@ -204,6 +221,51 @@ cut off mid-sentence.
 
 Both work the same on `generate()`, `generateStream()`, and `chat()`.
 
+## More options
+
+Every option is optional, and every entry point (`generate()`, `generateStream()`
+and `chat()`) accepts all of them. Omitting one hands that decision to Aivana.
+
+| option | type | when omitted |
+|---|---|---|
+| `webSearch` | boolean | Aivana decides whether the question needs fresh data |
+| `effort` | `"auto"` \| `"low"` \| `"medium"` \| `"high"` | `"auto"`: Aivana judges from the question |
+| `intelligenceTrace` | boolean | no trace |
+| `assistantName` | string | the assistant does not name itself |
+| `topP` | 0.0–1.0 | each model's own default |
+| `stopSequences` | up to 4 strings | the answer ends naturally |
+
+**`webSearch` has three states.** `true` always searches, `false` never does, and
+leaving it out lets Aivana judge, which is not the same as `false`. On an API key
+the default is off, so a search never turns up on your bill unannounced.
+
+**`effort`** decides how much intelligence goes into the answer: `"low"` is the
+fastest, cheapest path, `"medium"` compares two independent perspectives, and
+`"high"` engages three or more. It bounds Aivana's judgement rather than replacing
+it, and it is not a length control; use `maxTokens` for that.
+
+```js
+await client.generate("What's the default port for Postgres?", { effort: "low" });
+await client.generate("Should we move billing off Stripe?", { effort: "high", webSearch: true });
+```
+
+**`intelligenceTrace: true`** adds `trace` to the response: the steps Aivana took,
+with timings, the route it chose and why. On a stream the same arrives as `trace`
+events. It describes decisions and outcomes, never which models answered.
+
+**`assistantName`** sets the name the assistant presents as. Prefer it to writing
+"your name is Acme" into `system`: it is applied before any model sees the prompt,
+so it always holds.
+
+Options given to `chat()` apply to every turn, and options given to `send()` win for
+that turn:
+
+```js
+const support = client.chat({ assistantName: "Acme Support", webSearch: false });
+await support.send("Customer wants a refund after 40 days.");
+await support.send("What does the law say now?", { webSearch: true });
+```
+
 ## Quotas
 
 ```js
@@ -231,6 +293,9 @@ and `requestId` — quote `requestId` when reporting a problem.
 | `RateLimitError` | rate limit or quota exhausted (429) |
 | `InvalidRequestError` | malformed request (400) |
 | `UpstreamError` | model provider failed (502) |
+
+A validation error (HTTP 422, an `InvalidRequestError`) also carries `details`: one
+`{ loc, msg }` per field that was wrong, e.g. `loc: ["body", "temperature"]`.
 
 ```js
 import { RateLimitError } from "@aivana/sdk";

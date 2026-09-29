@@ -85,7 +85,7 @@ Each chunk is `{ event, data }`. The events you'll care about:
 
 ## Conversation history
 
-Aivana is stateless: it never stores your conversations. To ask a follow-up, you
+The Generate API is stateless: each request stands alone. To ask a follow-up, you
 send the prior turns back with the next question. There are two ways to do that.
 
 **Let the SDK track it.** `chat()` keeps the history in memory and appends each
@@ -160,31 +160,44 @@ Only set this when you actually mean to resume a cutoff — it's never inferred 
 what a message says, and using it without a truncated answer in `messages` gives
 the engine nothing to continue from.
 
-## Images
+## Files and documents
 
-Send images inline with a question — chart screenshots, diagrams, photos of a
-whiteboard:
+Attach up to **5 files** to a request, in any mix, **40 MiB** in all — chart
+screenshots, diagrams, contracts, reports, spreadsheets exported as CSV:
 
 ```js
 import { readFileSync } from "node:fs";
 
-const res = await client.generate("What's driving the dip in this chart?", {
+const res = await client.generate("Summarise the three biggest risks in this contract.", {
   attachments: [
-    { mimeType: "image/png", data: readFileSync("chart.png").toString("base64") },
+    { mimeType: "application/pdf", data: readFileSync("contract.pdf").toString("base64") },
   ],
 });
 ```
 
 `data` takes raw base64 or a full data URL (`data:image/png;base64,...`) — both work.
 
-| | |
-|---|---|
-| Formats | `image/png`, `image/jpeg`, `image/webp`, `image/gif` |
-| Max per request | 6 images |
-| Max size | 8 MiB each, decoded |
+| kind | `mimeType` | limit |
+|---|---|---|
+| Images | `image/png`, `image/jpeg`, `image/webp`, `image/gif` | 8 MiB each |
+| PDF | `application/pdf` | 10 MiB each; 150 pages in all |
+| Word | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` (`.docx`) | 10 MiB each |
+| CSV | `text/csv` | 10 MiB each |
 
-Images attach to the **current turn only** and are never replayed on later turns.
-If a follow-up question is about the same image, send it again:
+Word and CSV text together can't exceed 400,000 characters per request. A file that
+can't be read (an encrypted PDF or Word document, an old `.doc` file, a CSV that
+isn't text) is rejected with an error that says why, and which file. Excel
+workbooks aren't supported; export the sheet as CSV. Send two or more documents to
+compare them; answers say which document each point comes from.
+
+Files are billed as input tokens and included in `usage.input_tokens`: an image
+counts as up to 1,534 tokens, a PDF as 2,300 a page, and a Word or CSV file as one
+token per 4 characters of its text.
+
+The `aivana` command is narrower than the API: `--image` attaches images only.
+
+Files attach to the **current turn only** and are never replayed on later turns.
+If a follow-up question is about the same file, send it again:
 
 ```js
 const chat = client.chat();
@@ -196,7 +209,6 @@ await chat.send("How would you fix the bottleneck?", {
 });
 ```
 
-Nothing is stored server-side — the bytes are used for that request and discarded.
 
 ## Generation options
 
@@ -232,17 +244,33 @@ and `chat()`) accepts all of them. Omitting one hands that decision to Aivana.
 | `effort` | `"auto"` \| `"low"` \| `"medium"` \| `"high"` | `"auto"`: Aivana judges from the question |
 | `intelligenceTrace` | boolean | no trace |
 | `assistantName` | string | the assistant does not name itself |
-| `topP` | 0.0–1.0 | each model's own default |
 | `stopSequences` | up to 4 strings | the answer ends naturally |
 
 **`webSearch`**: `true` always searches, `false` never does. Left out, the API's
 default applies, and for an API key that is no search, so a search never turns up on
 your bill unannounced. `false` stays "never" even if that default changes.
 
+A request that searches the web is charged every token used to answer it, not just
+your prompt and the answer, so it uses more tokens than the same question without
+search. If your balance can't cover a search, the request is refused with a 402 that
+says so.
+
+If a question asks for the web ("search the web for…", a link to read) while search
+is off, the answer is written without searching, and `res.notices` says so. The list
+is always present, and each message is safe to show to your own users:
+
+```js
+const res = await client.generate("Search the web for today's EU AI Act news");
+for (const notice of res.notices) console.log(notice.code, notice.message); // web_search_off ...
+```
+
+Set `webSearch: true` to allow the search.
+
 **`effort`** decides how much intelligence goes into the answer: `"low"` is the
-fastest, cheapest path, `"medium"` compares two independent perspectives, and
-`"high"` engages three or more. It bounds Aivana's judgement rather than replacing
-it, and it is not a length control; use `maxTokens` for that.
+fastest, cheapest path, `"medium"` allows a balanced amount of checking, and
+`"high"` allows the most thorough treatment. It is a ceiling on Aivana's judgement
+rather than a replacement for it, with no guaranteed number of models or
+perspectives, and it is not a length control; use `maxTokens` for that.
 
 ```js
 await client.generate("What's the default port for Postgres?", { effort: "low" });

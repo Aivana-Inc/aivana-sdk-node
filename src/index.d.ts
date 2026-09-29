@@ -13,9 +13,10 @@ export type OutputShape =
   | "extract";
 
 /** How much intelligence to spend. `"auto"` (the default) lets Aivana judge from the
- *  question; `"low"` is the fastest, cheapest path; `"medium"` compares two
- *  independent perspectives; `"high"` engages three or more. A bound on Aivana's own
- *  judgement, not a length control — use `maxTokens` for that. */
+ *  question; `"low"` is the fastest, cheapest path; `"medium"` allows a balanced
+ *  amount of checking; `"high"` allows the most thorough treatment. A ceiling on
+ *  Aivana's own judgement — no particular number of models or perspectives is
+ *  guaranteed — and not a length control: use `maxTokens` for that. */
 export type Effort = "auto" | "low" | "medium" | "high";
 
 export interface AivanaConfig {
@@ -30,9 +31,12 @@ export interface ChatMessage {
   content: string;
 }
 
-/** An inline image for the current turn. Max 6 per request, 8 MiB each (decoded). */
+/** An inline file for the current turn: up to 5 per request, 40 MiB in all. Images
+ *  are 8 MiB each; documents are 10 MiB each (a PDF also counts toward 150 pages). */
 export interface Attachment {
-  /** One of: image/png, image/jpeg, image/webp, image/gif. */
+  /** One of: image/png, image/jpeg, image/webp, image/gif, application/pdf,
+   *  application/vnd.openxmlformats-officedocument.wordprocessingml.document (.docx),
+   *  text/csv. */
   mimeType?: string;
   /** Accepted as an alias for `mimeType`. */
   mime_type?: string;
@@ -48,7 +52,7 @@ export interface GenerateOptions {
    *  a supplied value can only lower that size, never raise it. */
   maxTokens?: number;
   messages?: ChatMessage[];
-  /** Images for this turn only — not replayed on later turns. */
+  /** Files for this turn only — not replayed on later turns. */
   attachments?: Attachment[];
   previousIntent?: string;
   /** The `pending_action` from the previous response, so a bare "yes" resolves
@@ -112,11 +116,20 @@ export interface UsageEnvelope {
   credits: number;
 }
 
+/** Something the caller may need to know about an answer: a stable `code` and a
+ *  `message` that is safe to show as it is. Today's only code is `web_search_off`. */
+export interface NoticeEnvelope {
+  code: string;
+  message: string;
+}
+
 /** Exactly the fields /v1/generate returns. Anything absent here is absent at
  *  runtime — declaring more does not make TypeScript catch the difference, it
  *  just hands you a typed `undefined`. */
 export interface GenerateResponse {
   id: string;
+  /** Quote it, with `id`, when you contact support. Also the X-Request-Id header. */
+  request_id: string;
   answer: string;
   intent: IntentEnvelope;
   structured: Record<string, unknown> | null;
@@ -126,6 +139,9 @@ export interface GenerateResponse {
   usage: UsageEnvelope;
   latency_ms: number;
   finish_reason: string;
+  /** What the caller should know about the answer. Always present; `[]` when there
+   *  is nothing to say. */
+  notices: NoticeEnvelope[];
   pending_action?: string | null;
   /** The Intelligence Trace when `intelligenceTrace: true` was requested, otherwise
    *  null: the ordered steps with timings, a summary of the route chosen, and why.
@@ -181,7 +197,7 @@ export class UpstreamError extends AivanaError {}
 
 /** Every generation option, applied to every turn; a `send()`'s own options win for
  *  that turn. The API is stateless, so all of it — a `system` persona included — is
- *  re-sent (and re-billed) on each turn rather than stored server-side. */
+ *  re-sent (and re-billed) on each turn rather than kept between requests. */
 export type ChatOptions = Omit<
   GenerateOptions,
   "messages" | "previousIntent" | "pendingAction" | "continue" | "signal"

@@ -31,7 +31,7 @@ aivana "Extract the invoice number and total" --shape extract --json < invoice.t
 | `--assistant-name NAME` | the name the assistant presents as |
 | `--max-tokens N` | a ceiling on answer length |
 | `--temperature T` | 0.0–2.0; omit to let Aivana choose |
-| `--image PATH` | attach a PNG, JPEG, WebP or GIF image (repeatable) |
+| `--image PATH` | attach a PNG, JPEG, WebP or GIF image (repeatable). The Aivana API also accepts PDF, Word and CSV files; from the command line, extract a document's text and pipe it in |
 | `--trace` | show the Intelligence Trace (on stderr) |
 | `--json` | the whole response as JSON, without streaming |
 

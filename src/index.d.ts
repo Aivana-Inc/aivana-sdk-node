@@ -12,11 +12,12 @@ export type OutputShape =
   | "decision"
   | "extract";
 
-/** How much intelligence to spend. `"auto"` (the default) lets Aivana judge from the
- *  question; `"low"` is the fastest, cheapest path; `"medium"` allows a balanced
- *  amount of checking; `"high"` allows the most thorough treatment. A ceiling on
- *  Aivana's own judgement — no particular number of models or perspectives is
- *  guaranteed — and not a length control: use `maxTokens` for that. */
+/** A ceiling on how much intelligence Aivana may apply. `"auto"` (the default) lets
+ *  Aivana judge from the question; `"low"` sets a lower reasoning ceiling and can
+ *  reduce latency on simpler tasks; `"high"` allows deeper reasoning for more
+ *  demanding tasks. No particular number of models or perspectives is guaranteed,
+ *  it is not a length control (use `maxTokens` for that), and it is not a price
+ *  setting: pricing is by the tokens in the request and response. */
 export type Effort = "auto" | "low" | "medium" | "high";
 
 export interface AivanaConfig {
@@ -68,7 +69,7 @@ export interface GenerateOptions {
    *  default applies, and for an API key that default is off. `false` still says
    *  more than omitting: it stays "never" even if the default changes. */
   webSearch?: boolean;
-  /** How much intelligence to spend on this request. */
+  /** A ceiling on how much intelligence Aivana may apply to this request. */
   effort?: Effort;
   /** Ask Aivana to explain how it handled the request: the response's `trace`, or
    *  `trace` events on a stream. Off unless set. Describes decisions and outcomes,

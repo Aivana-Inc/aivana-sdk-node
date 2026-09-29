@@ -250,6 +250,22 @@ and `chat()`) accepts all of them. Omitting one hands that decision to Aivana.
 default applies, and for an API key that is no search, so a search never turns up on
 your bill unannounced. `false` stays "never" even if that default changes.
 
+A request that searches the web is charged every token used to answer it, not just
+your prompt and the answer, so it uses more tokens than the same question without
+search. If your balance can't cover a search, the request is refused with a 402 that
+says so.
+
+If a question asks for the web ("search the web for…", a link to read) while search
+is off, the answer is written without searching, and `res.notices` says so. The list
+is always present, and each message is safe to show to your own users:
+
+```js
+const res = await client.generate("Search the web for today's EU AI Act news");
+for (const notice of res.notices) console.log(notice.code, notice.message); // web_search_off ...
+```
+
+Set `webSearch: true` to allow the search.
+
 **`effort`** decides how much intelligence goes into the answer: `"low"` is the
 fastest, cheapest path, `"medium"` allows a balanced amount of checking, and
 `"high"` allows the most thorough treatment. It is a ceiling on Aivana's judgement

@@ -116,11 +116,20 @@ export interface UsageEnvelope {
   credits: number;
 }
 
+/** Something the caller may need to know about an answer: a stable `code` and a
+ *  `message` that is safe to show as it is. Today's only code is `web_search_off`. */
+export interface NoticeEnvelope {
+  code: string;
+  message: string;
+}
+
 /** Exactly the fields /v1/generate returns. Anything absent here is absent at
  *  runtime — declaring more does not make TypeScript catch the difference, it
  *  just hands you a typed `undefined`. */
 export interface GenerateResponse {
   id: string;
+  /** Quote it, with `id`, when you contact support. Also the X-Request-Id header. */
+  request_id: string;
   answer: string;
   intent: IntentEnvelope;
   structured: Record<string, unknown> | null;
@@ -130,6 +139,9 @@ export interface GenerateResponse {
   usage: UsageEnvelope;
   latency_ms: number;
   finish_reason: string;
+  /** What the caller should know about the answer. Always present; `[]` when there
+   *  is nothing to say. */
+  notices: NoticeEnvelope[];
   pending_action?: string | null;
   /** The Intelligence Trace when `intelligenceTrace: true` was requested, otherwise
    *  null: the ordered steps with timings, a summary of the route chosen, and why.

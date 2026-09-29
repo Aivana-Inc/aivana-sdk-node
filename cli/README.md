@@ -24,7 +24,7 @@ aivana "Extract the invoice number and total" --shape extract --json < invoice.t
 
 | option | meaning |
 |---|---|
-| `--effort auto\|low\|medium\|high` | how much intelligence to spend; `auto` lets Aivana judge |
+| `--effort auto\|low\|medium\|high` | a ceiling on how much intelligence Aivana may apply; `auto` lets Aivana judge. Useful for simpler questions and faster experimentation at `low` |
 | `--shape SHAPE` | answer format: `auto`, `text`, `recommendation`, `summary`, `tradeoffs`, `decision`, `extract` |
 | `--web` / `--no-web` | always / never search the web first; neither means no search, the default for API keys |
 | `--system TEXT` | your own instructions: persona, tone, format |

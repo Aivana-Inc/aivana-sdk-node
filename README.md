@@ -266,11 +266,12 @@ for (const notice of res.notices) console.log(notice.code, notice.message); // w
 
 Set `webSearch: true` to allow the search.
 
-**`effort`** decides how much intelligence goes into the answer: `"low"` is the
-fastest, cheapest path, `"medium"` allows a balanced amount of checking, and
-`"high"` allows the most thorough treatment. It is a ceiling on Aivana's judgement
-rather than a replacement for it, with no guaranteed number of models or
-perspectives, and it is not a length control; use `maxTokens` for that.
+**`effort`** is a ceiling on how much intelligence Aivana may apply: `"low"` sets a
+lower reasoning ceiling and can reduce latency on simpler tasks, `"medium"` a middle
+one, and `"high"` allows deeper reasoning for more demanding tasks. It bounds
+Aivana's judgement rather than replacing it, with no guaranteed number of models or
+perspectives. It is not a length control (use `maxTokens` for that) and not a price
+setting: pricing is based on the tokens in your request and response.
 
 ```js
 await client.generate("What's the default port for Postgres?", { effort: "low" });

@@ -142,8 +142,9 @@ positional arguments:
 options:
   -h, --help            show this help message and exit
   --effort {auto,low,medium,high}
-                        how much intelligence to spend. auto (the default)
-                        lets Aivana judge from the question.
+                        a ceiling on how much intelligence Aivana may apply.
+                        auto (the default) lets Aivana judge from the
+                        question.
   --shape SHAPE         answer format: auto, text, recommendation, summary,
                         tradeoffs, decision, extract
   --web, --no-web       --web always searches the web first, --no-web never

@@ -35,7 +35,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "version": "node tools/sync-cli-version.mjs"
   },
   "keywords": [
     "ai",

@@ -39,7 +39,8 @@ Actions → **Publish SDK and CLI**. The job:
 2. checks that the tag matches all four version fields, and stops before
    publishing anything if it doesn't;
 3. publishes `@aivana/sdk`;
-4. waits until npm serves that version, which can take several minutes;
+4. waits until npm serves that version: usually a few minutes, sometimes more
+   than fifteen, and it gives up after 45;
 5. publishes `@aivana/cli`.
 
 If it fails partway, fix the cause and click **Re-run failed jobs**: a version

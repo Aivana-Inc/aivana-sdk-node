@@ -303,6 +303,16 @@ export class Chat {
     return this.options.system;
   }
 
+  /** The name the assistant presents as in this conversation, if one was set. */
+  get assistantName() {
+    return this.options.assistantName;
+  }
+
+  /** The conversation's web-search setting (`true` or `false`), if one was set. */
+  get webSearch() {
+    return this.options.webSearch;
+  }
+
   async send(content, opts = {}) {
     this.messages.push({ role: "user", content });
     const resp = await this.client.generate(null, {

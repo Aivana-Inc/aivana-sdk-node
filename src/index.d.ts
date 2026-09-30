@@ -208,6 +208,8 @@ export class Chat {
   messages: ChatMessage[];
   options: ChatOptions;
   readonly system?: string;
+  readonly assistantName?: string;
+  readonly webSearch?: boolean;
   send(content: string, opts?: GenerateOptions): Promise<GenerateResponse>;
   /** Resume the last answer after a real provider cutoff
    *  (`finish_reason === "length"`). Requires the last turn in history to be

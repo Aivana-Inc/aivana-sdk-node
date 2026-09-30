@@ -117,14 +117,17 @@ jobs:
       # Publishing the CLI before then opens a window in which
       # `npm install @aivana/cli` fails, because the exact SDK version it depends
       # on can't be found yet, so wait for the SDK first, for up to 45 minutes.
-      # --prefer-online skips npm's local cache, which could otherwise answer
-      # from a stale copy.
+      # npm can list a version minutes before its tarball downloads (0.6.4's CLI
+      # took five), so this waits for the tarball itself, which is what an
+      # install fetches. --prefer-online skips npm's local cache, which could
+      # otherwise answer from a stale copy.
       - name: Wait until @aivana/sdk can be installed
         run: |
           version="$(node -p "require('./package.json').version")"
           for attempt in $(seq 1 90); do
-            if [ "$(npm view "@aivana/sdk@$version" version --prefer-online 2>/dev/null || true)" = "$version" ]; then
-              echo "@aivana/sdk $version is available."
+            tarball="$(npm view "@aivana/sdk@$version" dist.tarball --prefer-online 2>/dev/null || true)"
+            if [ -n "$tarball" ] && curl -sfI -o /dev/null "$tarball"; then
+              echo "@aivana/sdk $version is available: $tarball"
               exit 0
             fi
             echo "Waiting for npm to make @aivana/sdk $version available ($attempt of 90)..."

@@ -65,6 +65,10 @@ export class InvalidRequestError extends AivanaError { constructor(m, o) { super
 export class UpstreamError extends AivanaError { constructor(m, o) { super(m, o); this.name = "UpstreamError"; } }
 
 
+const REQUEST_MISTAKE_CODES = new Set([
+  "invalid_request", "invalid_response_schema", "structured_output_streaming_not_supported",
+]);
+
 function _classify(status, payload) {
   const err = (payload && payload.error) || {};
   const opts = {
@@ -77,7 +81,13 @@ function _classify(status, payload) {
   if (status === 401 || opts.code === "auth") return new AuthError(msg, opts);
   if (status === 403 || opts.code === "forbidden") return new ForbiddenError(msg, opts);
   if (status === 429 || opts.code === "rate_limit_exceeded") return new RateLimitError(msg, opts);
-  if (status === 400 || opts.code === "invalid_request") return new InvalidRequestError(msg, opts);
+  // A schema the API refuses, and a strict schema asked to stream, are the caller's
+  // request to fix like any other 422: codes of their own so a caller can tell them
+  // apart (`.code`), the same class so one `instanceof InvalidRequestError` covers
+  // every request mistake. Mirrors from_error_payload() in the Python SDK.
+  if (status === 400 || REQUEST_MISTAKE_CODES.has(opts.code)) {
+    return new InvalidRequestError(msg, opts);
+  }
   if (status === 502 || opts.code === "upstream") return new UpstreamError(msg, opts);
   return new AivanaError(msg, opts);
 }
@@ -124,6 +134,24 @@ async function _json(resp) {
 }
 
 
+// A strict schema is answered whole, so it cannot be streamed: the answer is
+// checked against the schema before any of it is sent, which a stream cannot wait
+// for. The API refuses it too, with this same code; refusing here saves the round
+// trip and fails the same way in both SDKs. (generateStream is an async generator,
+// so this throws when the stream is first read.)
+function _refuseStrictStream(body) {
+  const fmt = body.response_format;
+  if (fmt && typeof fmt === "object" && fmt.type === "json_schema") {
+    throw new InvalidRequestError(
+      "A responseFormat of type json_schema cannot be streamed: its answer is " +
+      "checked against your schema before it is sent. Call generate() instead, " +
+      "or drop responseFormat.",
+      { code: "structured_output_streaming_not_supported" },
+    );
+  }
+}
+
+
 /** Main client class. */
 export class Aivana {
   /**
@@ -148,7 +176,7 @@ export class Aivana {
 
   _body({ prompt, mode = "aivana_mmi", temperature, maxTokens, messages, previousIntent,
           pendingAction, outputShape, metadata, attachments, system, assistantName,
-          webSearch, topP, stopSequences, intelligenceTrace, effort,
+          webSearch, topP, stopSequences, intelligenceTrace, effort, responseFormat,
           continue: continueFlag }) {
     const b = { mode };
     if (prompt) b.prompt = prompt;
@@ -209,6 +237,22 @@ export class Aivana {
     }
     // Normalised so "High" and "high" are one request, not two.
     if (effort) b.effort = String(effort).trim().toLowerCase();
+    // `{ type: "json_schema", schema: {...} }` asks for an answer that validates
+    // against the caller's own JSON Schema, or an explicit error: never malformed
+    // data with a 200. The SCHEMA IS SENT EXACTLY AS GIVEN: its keys are the
+    // caller's own field names, so nothing here may re-case or reorder them (this
+    // is the one place a snake_case conversion would do damage), and which
+    // keywords Aivana supports is the API's to decide, not this client's. Only the
+    // wrapper is copied, so the caller's object is never mutated.
+    if (responseFormat !== undefined && responseFormat !== null) {
+      if (typeof responseFormat !== "object" || Array.isArray(responseFormat)) {
+        throw new InvalidRequestError(
+          'responseFormat must be an object like { type: "json_schema", schema: {...} }.',
+          { code: "invalid_request" },
+        );
+      }
+      b.response_format = { ...responseFormat };
+    }
     return b;
   }
 
@@ -247,9 +291,11 @@ export class Aivana {
 
   /** Streaming generation. Yields { event, data } chunks. */
   async *generateStream(prompt, opts = {}) {
+    const body = this._body({ prompt, ...opts });
+    _refuseStrictStream(body);
     const resp = await this._post(
       "/v1/generate:stream",
-      this._body({ prompt, ...opts }),
+      body,
       { stream: true, signal: opts.signal },
     );
     yield* _parseSSE(resp.body);

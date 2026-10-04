@@ -41,6 +41,7 @@ That's the whole setup. Your API key is the only required option.
   intent: { name, confidence },
   models_used: [...],         // the Aivana model id, e.g. ["aivana-mmi"]
   usage: { input_tokens, output_tokens, credits },
+  structured: null,           // your validated object when you pass `responseFormat`
   latency_ms: 8421,
   finish_reason: "stop"
 }
@@ -82,6 +83,70 @@ Each chunk is `{ event, data }`. The events you'll care about:
 | `trace` | an Intelligence Trace step, when `intelligenceTrace: true` |
 | `done` | finished — carries `usage` and `finish_reason` |
 | `error` | something failed upstream |
+
+A `responseFormat` of type `json_schema` cannot be streamed: see
+[Structured output](#structured-output-your-own-json-schema).
+
+## Structured output (your own JSON Schema)
+
+Pass a JSON Schema and get back an answer that validates against it, or an error.
+You never get malformed data with a success status.
+
+```js
+const schema = {
+  type: "object",
+  properties: {
+    vendorName: { type: "string" },
+    total: { type: "number" },
+  },
+  required: ["vendorName", "total"],
+  additionalProperties: false,
+};
+
+const res = await client.generate(
+  "Extract the invoice: Acme Ltd, total due 1,250.00",
+  { responseFormat: { type: "json_schema", schema } },
+);
+
+res.structured;   // { vendorName: "Acme Ltd", total: 1250 }, validated
+res.answer;       // the same object as compact JSON
+```
+
+- **Your schema is sent exactly as you wrote it.** Property names are not re-cased
+  or re-ordered, even though the rest of this SDK's options map to the API's
+  snake_case.
+- **The root must be an object.** Aivana accepts a bounded subset of JSON Schema.
+  A keyword it does not support is refused up front, never silently ignored.
+- **It is answered whole, not streamed**, because the answer is checked against your
+  schema before any of it is sent. It also cannot be combined with `stopSequences`
+  or `continue`. `maxTokens` still works: a cap too small to hold a valid object
+  ends as a failed run, below.
+- **Two errors, with their own `code`:**
+
+  ```js
+  import { InvalidRequestError, UpstreamError } from "@aivana/sdk";
+
+  try {
+    await client.generate("...", { responseFormat: { type: "json_schema", schema } });
+  } catch (err) {
+    if (err instanceof InvalidRequestError && err.code === "invalid_response_schema") {
+      // your schema uses something Aivana does not support: fix it
+    } else if (err instanceof UpstreamError && err.code === "structured_output_failed") {
+      // Aivana could not produce a conforming answer
+    } else throw err;
+  }
+  ```
+
+  A run that ends in `structured_output_failed` is **not billed**. Retrying is your
+  decision: it costs time, and a second attempt is billed only if it succeeds.
+- **Billing.** The schema counts once, as input tokens, however Aivana answers. A
+  successful run is billed the same whether or not it needed a second try.
+- **Upgrade first.** An older version of this SDK does not know `responseFormat`
+  and drops it silently, so the request would run without your schema.
+
+`{ type: "text" }` is the ordinary answer. `responseFormat` is a different thing
+from `outputShape`: the presets ask for a shape and do not guarantee it (`structured`
+may be `null`); `responseFormat` guarantees it or throws.
 
 ## Conversation history
 
@@ -245,6 +310,7 @@ and `chat()`) accepts all of them. Omitting one hands that decision to Aivana.
 | `intelligenceTrace` | boolean | no trace |
 | `assistantName` | string | the assistant does not name itself |
 | `stopSequences` | up to 4 strings | the answer ends naturally |
+| `responseFormat` | `{ type: "json_schema", schema }` \| `{ type: "text" }` | an ordinary answer. See [Structured output](#structured-output-your-own-json-schema) |
 
 **`webSearch`**: `true` always searches, `false` never does. Left out, the API's
 default applies, and for an API key that is no search, so a search never turns up on
@@ -320,8 +386,8 @@ and `requestId` — quote `requestId` when reporting a problem.
 | `AuthError` | missing or invalid API key (401) |
 | `ForbiddenError` | key lacks access (403) |
 | `RateLimitError` | rate limit or quota exhausted (429) |
-| `InvalidRequestError` | malformed request (400) |
-| `UpstreamError` | model provider failed (502) |
+| `InvalidRequestError` | malformed request (400), or a response schema Aivana refuses (422, `code` `invalid_response_schema`) |
+| `UpstreamError` | model provider failed (502), or no answer met your response schema (`code` `structured_output_failed`, not billed) |
 
 A validation error (HTTP 422, an `InvalidRequestError`) also carries `details`: one
 `{ loc, msg }` per field that was wrong, e.g. `loc: ["body", "temperature"]`.

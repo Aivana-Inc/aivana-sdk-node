@@ -143,7 +143,8 @@ test("a plain text format may still stream", async () => {
 
 // ---- errors -------------------------------------------------------------------
 
-for (const code of ["invalid_response_schema", "structured_output_streaming_not_supported"]) {
+for (const code of ["invalid_response_schema", "response_format_not_available",
+                    "structured_output_streaming_not_supported"]) {
   test(`a 422 ${code} is the callers to fix`, async () => {
     await assert.rejects(failing(422, envelope(code)).generate("hi"), (err) => {
       assert.ok(err instanceof InvalidRequestError);

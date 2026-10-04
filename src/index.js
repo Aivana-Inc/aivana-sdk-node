@@ -66,7 +66,8 @@ export class UpstreamError extends AivanaError { constructor(m, o) { super(m, o)
 
 
 const REQUEST_MISTAKE_CODES = new Set([
-  "invalid_request", "invalid_response_schema", "structured_output_streaming_not_supported",
+  "invalid_request", "invalid_response_schema", "response_format_not_available",
+  "structured_output_streaming_not_supported",
 ]);
 
 function _classify(status, payload) {
@@ -81,8 +82,9 @@ function _classify(status, payload) {
   if (status === 401 || opts.code === "auth") return new AuthError(msg, opts);
   if (status === 403 || opts.code === "forbidden") return new ForbiddenError(msg, opts);
   if (status === 429 || opts.code === "rate_limit_exceeded") return new RateLimitError(msg, opts);
-  // A schema the API refuses, and a strict schema asked to stream, are the caller's
-  // request to fix like any other 422: codes of their own so a caller can tell them
+  // A schema the API refuses, a strict schema asked to stream, and a strict schema asked of
+  // an environment that does not serve it (`response_format_not_available`: nothing is
+  // wrong with the schema) are the caller's request to fix like any other 422: codes of their own so a caller can tell them
   // apart (`.code`), the same class so one `instanceof InvalidRequestError` covers
   // every request mistake. Mirrors from_error_payload() in the Python SDK.
   if (status === 400 || REQUEST_MISTAKE_CODES.has(opts.code)) {

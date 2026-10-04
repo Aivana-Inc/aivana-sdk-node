@@ -386,7 +386,7 @@ and `requestId` — quote `requestId` when reporting a problem.
 | `AuthError` | missing or invalid API key (401) |
 | `ForbiddenError` | key lacks access (403) |
 | `RateLimitError` | rate limit or quota exhausted (429) |
-| `InvalidRequestError` | malformed request (400), or a response schema Aivana refuses (422, `code` `invalid_response_schema`) |
+| `InvalidRequestError` | malformed request (400), or a response schema Aivana refuses (422, `code` `invalid_response_schema`); `response_format_not_available` means the schema is fine but this API does not serve JSON Schema (Strict) yet |
 | `UpstreamError` | model provider failed (502), or no answer met your response schema (`code` `structured_output_failed`, not billed) |
 
 A validation error (HTTP 422, an `InvalidRequestError`) also carries `details`: one

@@ -17,7 +17,8 @@ const body = (opts) => client._body(opts);
 const PYTHON_WIRE_FIELDS = [
   "assistant_name", "attachments", "effort", "intelligence_trace", "max_tokens",
   "messages", "metadata", "mode", "output_shape", "pending_action", "previous_intent",
-  "prompt", "stop_sequences", "system", "temperature", "top_p", "web_search",
+  "prompt", "response_format", "stop_sequences", "system", "temperature", "top_p",
+  "web_search",
 ];
 
 test("an option for every field the Python SDK sends", () => {
@@ -27,7 +28,7 @@ test("an option for every field the Python SDK sends", () => {
     outputShape: "summary", attachments: [{ mimeType: "image/png", data: "AAA" }],
     metadata: { trace: "1" }, previousIntent: "tech_comparison", pendingAction: "code_fix",
     webSearch: true, topP: 0.4, stopSequences: ["###"], intelligenceTrace: true,
-    effort: "low",
+    effort: "low", responseFormat: { type: "json_schema", schema: { type: "object" } },
   });
   assert.deepEqual(Object.keys(b).sort(), PYTHON_WIRE_FIELDS);
   assert.equal(b.assistant_name, "Acme Copilot");
@@ -42,7 +43,7 @@ test("an option for every field the Python SDK sends", () => {
 test("new options are omitted unless the caller sets them", () => {
   const b = body({ prompt: "hi" });
   for (const field of ["assistant_name", "pending_action", "web_search", "top_p",
-                       "stop_sequences", "intelligence_trace", "effort"]) {
+                       "stop_sequences", "intelligence_trace", "effort", "response_format"]) {
     assert.equal(field in b, false, field);
   }
 });

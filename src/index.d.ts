@@ -45,6 +45,20 @@ export interface Attachment {
   data: string;
 }
 
+/** `{ type: "json_schema", schema }` asks for an answer that validates against your
+ *  own JSON Schema, or an error: `structured` is the validated object and `answer`
+ *  its compact JSON. `{ type: "text" }` is the ordinary answer.
+ *
+ *  The schema is sent exactly as you wrote it (property names are not re-cased).
+ *  Its root must be an object, and Aivana accepts a bounded subset of JSON Schema:
+ *  a keyword it does not support is refused up front (`code`
+ *  `invalid_response_schema`), never ignored. Answered whole, so it cannot be
+ *  streamed, nor combined with `stopSequences` or `continue`. A run that cannot
+ *  meet the schema fails with `code` `structured_output_failed` and is not billed. */
+export type ResponseFormat =
+  | { type: "text" }
+  | { type: "json_schema"; schema: Record<string, unknown> };
+
 export interface GenerateOptions {
   mode?: Mode;
   /** Omit to let Aivana choose it for each request. */
@@ -60,6 +74,8 @@ export interface GenerateOptions {
    *  against what was actually offered. `chat()` passes it for you. */
   pendingAction?: string;
   outputShape?: OutputShape;
+  /** An answer that validates against your own JSON Schema. See `ResponseFormat`. */
+  responseFormat?: ResponseFormat;
   metadata?: Record<string, unknown>;
   /** The name the assistant presents as ("Acme Copilot"). Substituted before any
    *  model sees the prompt, so it always holds — unlike a name asked for in

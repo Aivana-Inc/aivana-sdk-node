@@ -52,3 +52,29 @@ jobs:
             echo "got '$got', want '$want'" >&2
             exit 1
           fi
+
+  # One fixed check name, `lint-and-build`, so a single org-level ruleset can
+  # require it in every code repo. Don't rename it, and keep it separate from
+  # the `test` matrix above. The package is plain JavaScript with hand-written
+  # .d.ts files: it has no linter, no tsconfig and no build step, so "lint and
+  # build" here is a clean install plus a dry-run pack of both published packages.
+  lint-and-build:
+    name: lint-and-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - run: npm ci
+
+      - name: Pack @aivana/sdk (dry run)
+        run: npm pack --dry-run
+
+      - name: Pack @aivana/cli (dry run)
+        run: npm pack --dry-run
+        working-directory: cli

@@ -57,7 +57,7 @@ export const REQUEST_SOURCE = "cli-node";
 // started is always read to the end, however slowly it arrives.
 export const STDIN_WAIT_MS = 3000;
 
-const DEFAULT_BASE = "https://developers.aivana.ai";
+const DEFAULT_BASE = "https://api.aivana.ai";
 
 // Text that came from the API (the answer, trace steps, stage labels, error
 // messages) is printed where a terminal will act on control characters: an ESC
@@ -169,7 +169,7 @@ environment:
   AIVANA_API_KEY    your API key (required). Create one in AI Studio > API Keys.
                     It is read from the environment only: a key typed as an
                     argument would land in your shell history and process list.
-  AIVANA_API_BASE   API address. Defaults to https://developers.aivana.ai
+  AIVANA_API_BASE   API address. Defaults to https://api.aivana.ai
 
 exit codes:
   0  success                     4  rate limited: wait, then retry
@@ -361,7 +361,7 @@ async function ask(ctx, opts) {
     // Without a scheme and host, every request would fail as a network error that
     // says nothing about the actual mistake.
     if (!url || !["http:", "https:"].includes(url.protocol) || !url.hostname) {
-      error(ctx, "AIVANA_API_BASE must be a full URL, such as https://developers.aivana.ai");
+      error(ctx, "AIVANA_API_BASE must be a full URL, such as https://api.aivana.ai");
       return EXIT_USAGE;
     }
     apiBase = base;
@@ -613,7 +613,7 @@ function reportApiError(ctx, e, client, jsonMode) {
   } else if (e instanceof ForbiddenError) {
     if (e.code === "host_not_allowed") {
       hints.push(`Answers are only served from the developer API host, and ${client.apiBase} ` +
-                 "isn't it. Unset AIVANA_API_BASE to use https://developers.aivana.ai.");
+                 "isn't it. Unset AIVANA_API_BASE to use https://api.aivana.ai.");
     } else {
       code = EXIT_AUTH;
       hints.push("This key isn't allowed to generate answers. Create one that is in " +

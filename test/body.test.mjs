@@ -137,7 +137,7 @@ test("chat.continue() sends continue:true and stitches the answer onto the last 
 // 2026-08-12: the apex record now exists, so the default is production again —
 // defaulting to dev silently sent real traffic to the dev stack.
 test("defaults apiBase to production", () => {
-  assert.equal(new Aivana({ apiKey: "k" }).apiBase, "https://developers.aivana.ai");
+  assert.equal(new Aivana({ apiKey: "k" }).apiBase, "https://api.aivana.ai");
 });
 
 test("an explicit apiBase still wins, without a trailing slash", () => {

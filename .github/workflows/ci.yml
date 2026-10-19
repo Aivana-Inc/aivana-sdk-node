@@ -28,6 +28,12 @@ jobs:
 
       - run: npm ci
 
+      # The standalone starter uses the released SDK and Node's --env-file option.
+      # Its HTTP-handler tests still run on 18 as part of the SDK suite.
+      - name: Install the Basic AI Chat starter
+        if: matrix.node-version != 18
+        run: npm ci --prefix examples/basic-chat
+
       - run: npm test
 
       # Catches a missing file in package.json "files" before a release does.

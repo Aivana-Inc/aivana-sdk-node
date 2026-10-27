@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Basic AI Chat · Aivana</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <a
+          class="brand"
+          href="https://developers.aivana.ai"
+          target="_blank"
+          rel="noreferrer"
+          ><span class="mark" aria-hidden="true">a</span>Aivana<span class="tag"
+            >STARTER</span
+          ></a
+        >
+        <div class="header-actions">
+          <a
+            class="docs"
+            href="https://developers.aivana.ai/docs/quickstart"
+            target="_blank"
+            rel="noreferrer"
+            >Quickstart ↗</a
+          ><button
+            id="theme"
+            class="secondary"
+            type="button"
+            aria-label="Switch color theme"
+          >
+            Theme
+          </button>
+        </div>
+      </header>
+      <main>
+        <section class="chat" aria-labelledby="chat-title">
+          <div class="chat-header">
+            <div>
+              <p class="eyebrow">BUILD WITH AIVANA</p>
+              <h1 id="chat-title">Basic AI Chat</h1>
+            </div>
+            <button id="reset" class="secondary" type="button">New chat</button>
+          </div>
+          <p class="intro">A small starting point. A real conversation.</p>
+          <div
+            id="transcript"
+            class="transcript"
+            role="log"
+            aria-label="Conversation"
+            aria-live="polite"
+            aria-relevant="additions text"
+          >
+            <div id="empty" class="empty">
+              <span class="spark" aria-hidden="true">✳</span>
+              <h2>What are you working on?</h2>
+              <p>
+                Ask a question, then follow up.<br />Aivana keeps the thread
+                while this page stays open.
+              </p>
+              <button id="example" class="suggestion" type="button">
+                Help me plan a small software project
+                <span aria-hidden="true">↗</span>
+              </button>
+            </div>
+          </div>
+          <p id="status" class="status" role="status"></p>
+          <p id="error" class="error" role="alert" hidden></p>
+          <form id="composer" class="composer">
+            <label class="sr-only" for="message">Message Aivana</label>
+            <textarea
+              id="message"
+              name="message"
+              rows="2"
+              maxlength="4000"
+              placeholder="Message Aivana…"
+              required
+              aria-describedby="composer-hint"
+            ></textarea>
+            <div class="composer-footer">
+              <span id="composer-hint"
+                >Enter for a new line · Ctrl / ⌘ + Enter to send</span
+              ><button id="stop" class="secondary" type="button" hidden>
+                Stop</button
+              ><button id="send" class="primary" type="submit">
+                Send <span aria-hidden="true">↑</span>
+              </button>
+            </div>
+          </form>
+          <p class="footnote">
+            API calls use account credit. New chat or a page reload clears this
+            page’s conversation.
+          </p>
+        </section>
+        <aside class="notes" aria-label="About this starter">
+          <p class="eyebrow">ONE SMALL EXAMPLE</p>
+          <h2>Your first Aivana app.</h2>
+          <p>A browser, a small Node.js server, and the official SDK.</p>
+          <ol>
+            <li>
+              <span>01</span>
+              <div>
+                <strong>Ask</strong>
+                <p>Your message goes to the local app server.</p>
+              </div>
+            </li>
+            <li>
+              <span>02</span>
+              <div>
+                <strong>Generate</strong>
+                <p>The server calls Aivana. Your API key stays there.</p>
+              </div>
+            </li>
+            <li>
+              <span>03</span>
+              <div>
+                <strong>Keep the thread</strong>
+                <p>
+                  Up to eight recent exchanges are sent with each follow-up,
+                  within a text limit.
+                </p>
+              </div>
+            </li>
+          </ol>
+          <div class="local-note">
+            <span class="dot" aria-hidden="true"></span>Local development
+            example
+            <p>
+              No accounts or database. Add your own authentication and usage
+              controls before hosting.
+            </p>
+          </div>
+        </aside>
+      </main>
+      <footer>
+        Built with
+        <a
+          href="https://developers.aivana.ai/docs/sdks"
+          target="_blank"
+          rel="noreferrer"
+          >@aivana/sdk ↗</a
+        ><span>Simple by design.</span>
+      </footer>
+    </div>
+  </body>
+</html>

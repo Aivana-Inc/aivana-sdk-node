@@ -33,6 +33,13 @@ console.log(res.answer);
 
 That's the whole setup. Your API key is the only required option.
 
+### Build a small chat app
+
+The [Basic AI Chat starter](examples/basic-chat/README.md) is a browser + Node.js
+example using the released SDK. It keeps your key server-side, supports follow-up
+turns, and includes setup, error handling, and a clear conversation-memory boundary.
+Requires Node.js 20.6 or newer; no frontend build step.
+
 ### What comes back
 
 ```js

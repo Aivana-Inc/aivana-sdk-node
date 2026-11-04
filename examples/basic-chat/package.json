@@ -1,0 +1,16 @@
+{
+  "name": "aivana-basic-chat-starter",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A small server-side Aivana SDK chat example.",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "start": "node --env-file=.env server.mjs"
+  },
+  "dependencies": {
+    "@aivana/sdk": "0.7.1"
+  }
+}

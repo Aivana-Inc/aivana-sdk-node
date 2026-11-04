@@ -147,9 +147,10 @@ options:
                         question.
   --shape SHAPE         answer format: auto, text, recommendation, summary,
                         tradeoffs, decision, extract
-  --web, --no-web       --web always searches the web first, --no-web never
-                        does. With neither, there is no search: the default
-                        for API keys.
+  --web, --no-web       --web allows web search (Aivana decides for each
+                        message whether it needs one), --no-web never searches.
+                        With neither, there is no search: the default for API
+                        keys.
   --system TEXT         your own instructions: persona, tone, format (max 8000
                         characters)
   --assistant-name NAME

@@ -319,14 +319,17 @@ and `chat()`) accepts all of them. Omitting one hands that decision to Aivana.
 | `stopSequences` | up to 4 strings | the answer ends naturally |
 | `responseFormat` | `{ type: "json_schema", schema }` \| `{ type: "text" }` | an ordinary answer. See [Structured output](#structured-output-your-own-json-schema) |
 
-**`webSearch`**: `true` always searches, `false` never does. Left out, the API's
-default applies, and for an API key that is no search, so a search never turns up on
-your bill unannounced. `false` stays "never" even if that default changes.
+**`webSearch`**: `true` allows web search: Aivana decides for each message whether it
+needs one, so a question about today's news is searched and a greeting is not (the
+same setting as Web Search Allowed in the Playground). `false` never searches. Left
+out, the API's default applies, and for an API key that is no search, so a search
+never turns up on your bill unannounced. `false` stays "never" even if that default
+changes.
 
 A request that searches the web is charged every token used to answer it, not just
 your prompt and the answer, so it uses more tokens than the same question without
-search. If your balance can't cover a search, the request is refused with a 402 that
-says so.
+search. If your balance can't cover a search, the search is left out, and a question
+that needs one is refused with a 402 that says so.
 
 If a question asks for the web ("search the web for…", a link to read) while search
 is off, the answer is written without searching, and `res.notices` says so. The list

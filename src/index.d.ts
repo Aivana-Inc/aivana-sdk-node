@@ -172,6 +172,45 @@ export interface StreamChunk {
   data: Record<string, unknown>;
 }
 
+export interface BlueprintReference {
+  id: string;
+  /** The numeric version that actually ran, including when latest was requested. */
+  version: number;
+}
+
+export interface BlueprintInput {
+  id: string;
+  /** Required: a positive safe integer, or latest explicitly. Never defaults. */
+  version: number | "latest";
+  prompt?: string;
+  messages?: ChatMessage[];
+  attachments?: Attachment[];
+  metadata?: Record<string, unknown>;
+  previousIntent?: string;
+  pendingAction?: string;
+  continue?: boolean;
+  assistantName?: string;
+  intelligenceTrace?: boolean;
+  signal?: AbortSignal;
+}
+
+export interface BlueprintGenerateResponse extends GenerateResponse {
+  blueprint: BlueprintReference;
+}
+
+export interface BlueprintDoneChunk extends StreamChunk {
+  event: "done";
+  data: Record<string, unknown> & { blueprint: BlueprintReference };
+}
+
+/** Dedicated invocation routes only; saved settings cannot be overridden. */
+export class Blueprints {
+  constructor(client: Aivana);
+  generate(input: BlueprintInput): Promise<BlueprintGenerateResponse>;
+  /** Errors and a missing done frame throw; breaking iteration cancels the body. */
+  stream(input: BlueprintInput): AsyncGenerator<StreamChunk | BlueprintDoneChunk>;
+}
+
 /** `limit` and `pending` are null when the window is unmetered — no plan sets an
  *  hourly ceiling, so `hour` reports usage only. */
 export interface QuotaCounter {
@@ -212,6 +251,8 @@ export class ForbiddenError extends AivanaError {}
 export class RateLimitError extends AivanaError {}
 export class InvalidRequestError extends AivanaError {}
 export class UpstreamError extends AivanaError {}
+/** A route-level 404, distinct from code blueprint_not_found. */
+export class UnsupportedAPIError extends AivanaError {}
 
 /** Every generation option, applied to every turn; a `send()`'s own options win for
  *  that turn. The API is stateless, so all of it — a `system` persona included — is
@@ -237,6 +278,7 @@ export class Chat {
 }
 
 export class Aivana {
+  readonly blueprints: Blueprints;
   apiKey: string | null;
   apiBase: string;
   constructor(cfg?: AivanaConfig);

@@ -62,6 +62,7 @@ export class RateLimitError extends AivanaError { constructor(m, o) { super(m, o
 export class ForbiddenError extends AivanaError { constructor(m, o) { super(m, o); this.name = "ForbiddenError"; } }
 export class InvalidRequestError extends AivanaError { constructor(m, o) { super(m, o); this.name = "InvalidRequestError"; } }
 export class UpstreamError extends AivanaError { constructor(m, o) { super(m, o); this.name = "UpstreamError"; } }
+export class UnsupportedAPIError extends AivanaError { constructor(m, o) { super(m, o); this.name = "UnsupportedAPIError"; } }
 
 
 const REQUEST_MISTAKE_CODES = new Set([
@@ -101,7 +102,7 @@ function _isRedirect(resp) {
   return resp.type === "opaqueredirect" || (resp.status >= 300 && resp.status < 400);
 }
 
-async function _errorFrom(resp, hasKey) {
+async function _errorFrom(resp, hasKey, blueprint = false) {
   if (_isRedirect(resp)) {
     const status = resp.status ? ` (HTTP ${resp.status})` : "";
     return new AivanaError(
@@ -113,6 +114,12 @@ async function _errorFrom(resp, hasKey) {
   }
   let payload = null;
   try { payload = await resp.json(); } catch { /* fall through */ }
+  if (blueprint && resp.status === 404 && payload?.error?.code !== "blueprint_not_found") {
+    return new UnsupportedAPIError("Blueprint invocation is unsupported by this API. Check the API endpoint and deployment.", {
+      code: "blueprint_invocation_unsupported", status: 404,
+      requestId: payload?.error?.request_id || null,
+    });
+  }
   const err = _classify(resp.status, payload);
   // A request with no key is still sent (a caller's own proxy may add one), so the
   // missing key is only named here, once the API has refused it.
@@ -167,6 +174,7 @@ export class Aivana {
     this.apiBase = apiBase.replace(/\/$/, "");
     this.timeoutMs = timeoutMs;
     this._fetch = fetchImpl || globalThis.fetch.bind(globalThis);
+    this.blueprints = new Blueprints(this);
   }
 
   _headers(extra = {}) {
@@ -327,6 +335,118 @@ export class Aivana {
 }
 
 
+// Blueprint invocation sends runtime input only. In particular, _body() must not
+// be used here: it supplies mode and permits settings owned by the saved version.
+function _blueprintRequest(input) {
+  const invalid = (message) => { throw new InvalidRequestError(message, { code: "invalid_request" }); };
+  if (!input || typeof input !== "object" || Array.isArray(input)) invalid("Pass a Blueprint id, explicit version and runtime input.");
+  const fields = {
+    prompt: "prompt", messages: "messages", attachments: "attachments", metadata: "metadata",
+    previousIntent: "previous_intent", pendingAction: "pending_action", continue: "continue",
+    assistantName: "assistant_name", intelligenceTrace: "intelligence_trace",
+  };
+  for (const key of Object.keys(input)) {
+    if (!["id", "version", "signal"].includes(key) && !Object.hasOwn(fields, key)) {
+      invalid(`Blueprint invocation does not accept ${key}; saved settings cannot be overridden.`);
+    }
+  }
+  const { id, version, signal } = input;
+  if (typeof id !== "string" || !/^bp_[A-Za-z0-9_-]+$/.test(id)) invalid("id must be a Blueprint id starting with bp_.");
+  if (version !== "latest" && !(Number.isSafeInteger(version) && version > 0)) {
+    invalid('version must be a positive safe integer or the explicit string "latest".');
+  }
+  const body = {};
+  for (const [option, wire] of Object.entries(fields)) {
+    if (input[option] !== undefined && input[option] !== null) body[wire] = input[option];
+  }
+  if (body.attachments !== undefined) {
+    if (!Array.isArray(body.attachments) || body.attachments.some(a => !a || typeof a !== "object" || Array.isArray(a))) {
+      invalid("attachments must be an array of files.");
+    }
+    body.attachments = body.attachments.map(a => ({ mime_type: a.mimeType ?? a.mime_type, data: a.data }));
+  }
+  return { id, version, signal, body, path: `/v1/blueprints/${encodeURIComponent(id)}/versions/${version}/generate` };
+}
+
+function _blueprintReference(data, request) {
+  const ref = data?.blueprint;
+  if (!ref || ref.id !== request.id || !Number.isSafeInteger(ref.version) || ref.version < 1 ||
+      (request.version !== "latest" && ref.version !== request.version)) {
+    throw new AivanaError("The API did not confirm the requested Blueprint and resolved numeric version. Do not automatically retry this run.",
+      { code: "invalid_response", status: 200 });
+  }
+}
+
+/** Invoke saved Blueprints. No automatic retries, settings overrides or Generate fallback. */
+export class Blueprints {
+  constructor(client) { this._client = client; }
+
+  async _open(request, stream) {
+    const client = this._client;
+    const controller = new AbortController();
+    const signal = request.signal;
+    const abort = () => controller.abort();
+    const cleanup = () => { clearTimeout(timer); signal?.removeEventListener("abort", abort); };
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, client.timeoutMs);
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) controller.abort();
+    try {
+      if (controller.signal.aborted) throw new DOMException("The request was aborted.", "AbortError");
+      const response = await client._fetch(client.apiBase + request.path + (stream ? ":stream" : ""), {
+        method: "POST", headers: client._headers(), body: JSON.stringify(request.body),
+        credentials: "omit", redirect: "manual", signal: controller.signal,
+      });
+      if (!response.ok) throw await _errorFrom(response, Boolean(client.apiKey), true);
+      return { response, cleanup, abort, timedOut: () => timedOut };
+    } catch (error) {
+      cleanup();
+      if (timedOut) throw new AivanaError("Blueprint request timed out. Do not automatically retry generation.", { code: "timeout" });
+      throw error;
+    }
+  }
+
+  async generate(input) {
+    const request = _blueprintRequest(input);
+    const pending = await this._open(request, false);
+    try {
+      const result = await _json(pending.response);
+      _blueprintReference(result, request);
+      return result;
+    } catch (error) {
+      if (pending.timedOut()) throw new AivanaError("Blueprint request timed out. Do not automatically retry generation.", { code: "timeout" });
+      throw error;
+    } finally { pending.cleanup(); }
+  }
+
+  async *stream(input) {
+    const request = _blueprintRequest(input);
+    const pending = await this._open(request, true);
+    try {
+      for await (const chunk of _parseSSE(pending.response.body, true)) {
+        if (!chunk.data || typeof chunk.data !== "object" || Array.isArray(chunk.data)) {
+          throw new AivanaError("The API returned an invalid Blueprint stream frame; the answer is incomplete.", { code: "invalid_response" });
+        }
+        if (chunk.event === "error") {
+          throw _classify(502, { error: chunk.data.error ?? chunk.data });
+        }
+        if (chunk.event === "done") {
+          if (chunk.data.finish_reason === "error") throw new UpstreamError("Blueprint stream failed; the answer is incomplete.", { code: "upstream" });
+          _blueprintReference(chunk.data, request);
+          yield chunk;
+          return;
+        }
+        yield chunk;
+      }
+      throw new AivanaError("Blueprint stream ended without a done frame; the answer is incomplete. Do not automatically retry generation.", { code: "incomplete_stream" });
+    } catch (error) {
+      if (pending.timedOut()) throw new AivanaError("Blueprint stream timed out; the answer is incomplete. Do not automatically retry generation.", { code: "timeout" });
+      throw error;
+    } finally { pending.cleanup(); pending.abort(); }
+  }
+}
+
+
 /** Stateful multi-turn helper. Tracks messages, previous intent and the last offer
  *  across turns. */
 export class Chat {
@@ -417,7 +537,7 @@ export class Chat {
 
 // ---- SSE parser -----------------------------------------------------------
 
-async function* _parseSSE(stream) {
+async function* _parseSSE(stream, cancelOnExit = false) {
   if (!stream) return;
   // Node fetch + browser fetch both expose a ReadableStream on resp.body.
   const reader = stream.getReader();
@@ -429,18 +549,21 @@ async function* _parseSSE(stream) {
       if (done) break;
       buf += decoder.decode(value, { stream: true });
       let nl;
-      while ((nl = buf.indexOf("\n\n")) >= 0) {
+      while ((nl = buf.search(/\r?\n\r?\n/)) >= 0) {
         const block = buf.slice(0, nl);
-        buf = buf.slice(nl + 2);
+        const boundary = buf.slice(nl).match(/^\r?\n\r?\n/)[0].length;
+        buf = buf.slice(nl + boundary);
         const evt = _parseSSEBlock(block);
         if (evt) yield evt;
       }
     }
+    buf += decoder.decode();
     if (buf.trim()) {
       const evt = _parseSSEBlock(buf);
       if (evt) yield evt;
     }
   } finally {
+    if (cancelOnExit) { try { await reader.cancel(); } catch { /* already closed */ } }
     try { reader.releaseLock(); } catch { /* */ }
   }
 }

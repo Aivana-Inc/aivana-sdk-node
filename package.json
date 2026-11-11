@@ -36,6 +36,7 @@
   },
   "scripts": {
     "test": "node --test",
+    "test:types": "tsc --noEmit --strict --module nodenext --moduleResolution nodenext --target es2022 conformance/types/blueprints.ts",
     "version": "node tools/sync-cli-version.mjs"
   },
   "keywords": [
@@ -45,5 +46,8 @@
     "api",
     "aivana"
   ],
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
 }

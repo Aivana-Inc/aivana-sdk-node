@@ -50,8 +50,8 @@ button:focus-visible, a:focus-visible, textarea:focus-visible { outline: 3px sol
 .docs { font-size: 13px; text-decoration: none; padding: 12px 4px; }
 .secondary { color: var(--muted); border: 0; border-radius: 24px; background: transparent; font-size: 13px; padding: 10px 14px; }
 .secondary:hover, .docs:hover { color: var(--text); background: var(--user); }
-.new-chat { background: var(--accent); color: #fff; border: 0; border-radius: 24px; padding: 10px 18px; font-size: 13px; font-weight: 550; white-space: nowrap; }
-.new-chat:hover { background: var(--accent-hover); color: #111827; }
+.new-chat { background: #2563eb; color: #fff; border: 0; border-radius: 24px; padding: 10px 18px; font-size: 13px; font-weight: 550; white-space: nowrap; }
+.new-chat:hover { background: #1d4ed8; }
 main { display: flex; justify-content: center; flex: 1; min-height: 0; padding: 16px 24px; }
 .chat { width: 100%; max-width: 760px; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
 .transcript { flex: 0 0 auto; overflow-wrap: anywhere; }

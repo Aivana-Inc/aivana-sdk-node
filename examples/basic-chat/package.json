@@ -8,7 +8,9 @@
     "node": ">=20.6"
   },
   "scripts": {
-    "start": "node --env-file=.env server.mjs"
+    "start": "node --env-file=.env server.mjs",
+    "setup": "node setup.mjs",
+    "doctor": "node --env-file=.env doctor.mjs"
   },
   "dependencies": {
     "@aivana/sdk": "0.7.1"

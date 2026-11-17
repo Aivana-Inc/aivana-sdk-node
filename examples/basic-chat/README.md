@@ -8,6 +8,42 @@ This is the reference application for
 [Node SDK #24](https://github.com/Aivana-Inc/aivana-sdk-node/issues/24) and the
 [AI Studio developer journey](https://github.com/Aivana-Inc/aivana-ai-studio/issues/149).
 
+## Standalone download (no Git required)
+
+Download the approved `aivana-basic-chat.zip` release and extract it into a new
+folder. Requires Node.js 20.6+ and npm. Open a terminal in that folder and run:
+
+```sh
+node setup.mjs
+npm ci
+```
+
+Setup creates a private `.env` without overwriting an existing one. Open `.env` in
+your editor and add your own API key. Then:
+
+```sh
+npm run doctor
+npm start
+```
+
+Open http://127.0.0.1:3006. The same commands work in Windows PowerShell, macOS and
+Linux shells. Installation downloads pinned dependencies from npm; no repository
+access, build step or global CLI is needed. Doctor checks local configuration and
+dependencies without sending a paid request; it cannot verify your key or balance.
+
+For updates, extract the new release into a new folder, run setup/install, and
+copy your local `.env` yourself. Keep any application changes in your own Git
+repository and review them when upgrading. Stop with Ctrl+C. To uninstall, remove
+the extracted folder (including its local key file) after saving your own work.
+
+Release maintainers generate this download with
+`node tools/package-basic-chat.mjs NEW_OUTPUT_DIRECTORY` from the SDK repository.
+Only an explicit file allowlist is copied; the archive never includes `.env`,
+installed dependencies, Git history or other SDK examples. `MANIFEST.json` records
+file checksums. The manual `Basic Chat download` workflow tests the extracted
+archive on Windows/macOS/Linux and retains the candidate for release review.
+A candidate workflow artifact is not a public release until maintainers publish it.
+
 ## Start from a fresh clone
 
 Requires **Node.js 20.6 or newer**, npm, and an active Aivana API key with available

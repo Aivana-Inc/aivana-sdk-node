@@ -94,12 +94,18 @@ test("starter: invalid requests never reach the SDK", async (t) => {
 
 test("starter: fixed static routes never serve credentials or server files", async (t) => {
   const app = await fixture(t, (_entry, res) => answer(res));
-  for (const path of ["/", "/app.js", "/styles.css", "/conversation.mjs"]) {
+  for (const path of ["/", "/app.js", "/styles.css", "/assets/aivana-logo.avif", "/assets/aivana-sparkle.avif", "/conversation.mjs"]) {
     const response = await fetch(`${app.origin}${path}`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.match(response.headers.get("content-security-policy"), /script-src 'self'/);
-    assert.ok(!(await response.text()).includes(KEY));
+    if (path.endsWith(".avif")) {
+      assert.equal(response.headers.get("content-type"), "image/avif");
+      assert.match(response.headers.get("content-security-policy"), /img-src 'self'/);
+      assert.ok((await response.arrayBuffer()).byteLength > 0);
+    } else {
+      assert.ok(!(await response.text()).includes(KEY));
+    }
     assert.equal(response.headers.get("set-cookie"), null);
   }
   for (const path of ["/.env", "/.env.example", "/server.mjs", "/config.mjs", "/package.json", "/node_modules/@aivana/sdk/src/index.js", "/%2eenv"]) {

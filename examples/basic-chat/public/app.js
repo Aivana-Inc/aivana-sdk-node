@@ -4,6 +4,8 @@ const form = document.querySelector("#composer");
 const input = document.querySelector("#message");
 const transcript = document.querySelector("#transcript");
 const empty = document.querySelector("#empty");
+const chat = document.querySelector(".chat");
+const suggestions = document.querySelector("#suggestions");
 const status = document.querySelector("#status");
 const error = document.querySelector("#error");
 const send = document.querySelector("#send");
@@ -40,6 +42,9 @@ function bubble(role, content) {
 }
 
 function render(pending) {
+  const hasMessages = Boolean(pending || history.length);
+  chat.classList.toggle("has-messages", hasMessages);
+  suggestions.hidden = hasMessages;
   transcript.replaceChildren(...history.map((item) => bubble(item.role, item.content)));
   if (pending) transcript.append(bubble("user", pending));
   else if (!history.length) transcript.append(empty);
@@ -49,6 +54,7 @@ function render(pending) {
 function busy(value) {
   send.disabled = value;
   input.disabled = value;
+  suggestions.querySelectorAll("button").forEach((button) => { button.disabled = value; });
   stop.hidden = !value;
   form.setAttribute("aria-busy", String(value));
 }
@@ -77,6 +83,7 @@ form.addEventListener("submit", async (event) => {
     history = recentHistory([...sentHistory, { role: "user", content: message }, { role: "assistant", content: result.answer }]);
     context = result.context ?? {};
     input.value = "";
+    resizeInput();
     status.textContent = "";
     render();
   } catch (failure) {
@@ -108,14 +115,25 @@ document.querySelector("#reset").addEventListener("click", () => {
   history = [];
   context = {};
   input.value = "";
+  resizeInput();
   error.hidden = true;
   status.textContent = "New chat. Earlier messages will not be sent again.";
   render();
   if (!active) input.focus();
 });
 
-document.querySelector("#example").addEventListener("click", () => {
-  input.value = "Help me plan a small software project. Where should I start?";
-  input.focus();
+function resizeInput() {
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 164)}px`;
+}
+input.addEventListener("input", resizeInput);
+
+document.querySelectorAll("[data-prompt]").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (active) return;
+    input.value = button.dataset.prompt;
+    resizeInput();
+    input.focus();
+  });
 });
 window.addEventListener("pagehide", () => active?.abort());

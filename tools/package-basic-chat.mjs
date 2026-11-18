@@ -3,7 +3,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 export const FILES = ['package.json', 'package-lock.json', '.env.example', '.gitignore',
-  'verify-live.mjs', 'server.mjs', 'config.mjs', 'app.mjs', 'setup.mjs', 'doctor.mjs', 'README.md',
+  'blueprint.mjs', 'blueprints/landscaping.example.json', 'verify-live.mjs', 'server.mjs', 'config.mjs', 'app.mjs', 'setup.mjs', 'doctor.mjs', 'README.md',
   'public/app.js', 'public/conversation.mjs', 'public/index.html', 'public/styles.css', 'public/assets/aivana-logo.avif', 'public/assets/aivana-sparkle.avif', 'public/assets/README.md'];
 export async function packageChat(destination, source = fileURLToPath(new URL('../examples/basic-chat/', import.meta.url))) {
   const target = resolve(destination);

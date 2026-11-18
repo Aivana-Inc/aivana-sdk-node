@@ -167,3 +167,5 @@ footer a:hover { text-decoration: underline; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .brand img { filter: brightness(0) invert(1); }
 }
+
+.configuration-note { color: var(--muted); font-size: 12px; line-height: 1.6; text-align: center; margin: 0 0 12px; }

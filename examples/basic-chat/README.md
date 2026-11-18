@@ -44,6 +44,67 @@ file checksums. The manual `Basic Chat download` workflow tests the extracted
 archive on Windows/macOS/Linux and retains the candidate for release review.
 A candidate workflow artifact is not a public release until maintainers publish it.
 
+## Use an Agent Kit blueprint
+
+Design and test a text assistant in AI Studio's Agent Kit preview, then use
+**Inspect / export Blueprint definition → Download definition JSON**. This is
+Caden's existing definition export; the starter does not require the pending
+Blueprint storage or invocation backend.
+
+1. Put the downloaded `blueprint-definition.json` beside `server.mjs` (not inside
+   `public/`). Keep that filename. The server loads it automatically on startup.
+2. Run `npm run doctor` to validate it locally without making an API request.
+3. Run `npm start`, or stop and restart an already running server. Reload the
+   browser. The page shows **Blueprint loaded**, its history behavior, and whether
+   web search is allowed.
+4. Send a question related to the assistant you configured. Generation uses the
+   API key and account credit from your local `.env`.
+
+For a different filename, set `AIVANA_BLUEPRINT_FILE=./my-agent.json` in `.env`.
+Relative paths are resolved from the starter folder, even when launched elsewhere;
+absolute paths are also supported. Quote paths with spaces in `.env`.
+An explicit missing/unreadable file or an invalid definition stops startup; it
+never silently falls back to generic chat. If the variable is unset and the
+conventional file is absent, the starter keeps its original default behavior.
+
+**Try the included fictional business:** set the following in `.env`:
+
+```dotenv
+AIVANA_BLUEPRINT_FILE=blueprints/landscaping.example.json
+```
+
+Then run doctor/start and ask “What services do you offer?” followed by “Help me
+prepare an estimate request for the second service.” The sample supplies fictional
+service facts and explicitly has no booking or submission integration. Replace
+it with your own Agent Kit export to use your own instructions.
+
+The JSON is a local snapshot. Re-export, replace the file, restart, and reload to
+apply changes. It does not synchronize with Studio, call a saved Blueprint ID,
+carry a display name/version, or create server-side conversation storage. Purpose
+is descriptive metadata and is never inserted into the system instructions.
+
+| Export setting | Starter behavior |
+| --- | --- |
+| System, Effort, Web Search Allowed | Applied to every Generate request using documented SDK options. |
+| Temperature, Top-P, Max Tokens | Preserved, including zero. Null leaves the field out so the engine chooses its default; the starter's 800-token default is not added to an imported blueprint. Temperature and Top-P cannot both be set. |
+| Stop sequences | Preserved exactly; empty arrays are omitted. |
+| Text response format | Supported. JSON Schema (Strict) and other formats are rejected with instructions to explicitly choose Text and re-export. |
+| Conversation history: session | The starter's bounded recent turns and continuation context are sent with follow-ups. |
+| Conversation history: none | Earlier turns remain visible in this tab, but neither prior messages nor continuation context are sent. The server enforces this even if a browser submits them. |
+| Knowledge / Sources | Absent or null only. Source references are rejected; no business-document retrieval is claimed. |
+
+Validation follows the approved definition fields and bounds, refuses unknown
+fields and coercion, and limits the compact definition to 64 KiB (file size up to
+256 KiB including formatting). No imported file is executed. The browser receives
+only three behavior flags; instructions and file paths are not served or logged.
+`blueprint-definition.json` is ignored by Git and excluded from the downloadable
+package. Keep custom-named private exports out of your own Git commits too.
+
+For the capstone rehearsal, place the export in
+`rehearsal/aivana-sdk-node/examples/basic-chat/`, then run the rehearsal launcher's
+`stop` and `start` commands and reload Chat. No launcher changes or dependency
+installation are needed for the blueprint loader.
+
 ## Start from a fresh clone
 
 Requires **Node.js 20.6 or newer**, npm, and an active Aivana API key with available
@@ -110,6 +171,7 @@ Browser (plain HTML, CSS and JavaScript)
 | `server.mjs` | Read environment configuration; construct the official SDK client; listen on loopback. |
 | `config.mjs` | Validate the server-only key, API origin and local port. |
 | `app.mjs` | Validate requests; forward explicit conversation context; return a small answer envelope and fixed public errors. |
+| `blueprint.mjs` | Validate a local Agent Kit export and map its settings to SDK options. |
 | `public/app.js` | Keep successful turns in memory; send/reset/cancel; display answers as text. |
 | `public/conversation.mjs` | Bound the recent conversation supplied with follow-ups. |
 | `public/index.html`, `styles.css` | Responsive browser interface, including OS light/dark theme. |
@@ -128,14 +190,16 @@ inserted as HTML. SDK exceptions and upstream envelopes are not forwarded to the
   no chat data to cookies, local/session storage, disk or a database. Separate tabs
   have separate histories. New chat, reload or closing the page clears this local history.
   This is the starter's storage behavior, not a statement about API retention.
-- Each request sends up to **eight recent successful exchanges**, plus the current
+- With session history enabled, each request sends up to **eight recent successful exchanges**, plus the current
   message, within a **24,000-character** context budget. Older exchanges are removed
   as whole pairs. New user messages are limited to 4,000 characters. These are this
   example's limits, not the platform's API limits. JSON requests are bounded to 256 KiB.
 - Failed or stopped turns do not enter the next request's history. Failed messages
   remain in the composer for editing and manual resubmission.
-- Live web search is disabled and answers are capped at 800 output tokens for this
-  example. This is not a spending cap: repeated requests and repeated history consume
+- Without a blueprint, live web search is disabled and output is capped at 800 tokens.
+  Imported blueprints use their own settings, which can increase credit use. The
+  browser answer limit remains 16,000 characters; larger answers are rejected, not
+  silently truncated. This is not a spending cap: repeated requests and repeated history consume
   account credit. The server allows at most two concurrent requests.
 - Requests have a two-minute deadline. Stop, leaving the page and server shutdown
   forward cancellation. An accepted request may still use credit. No automatic
@@ -148,6 +212,8 @@ inserted as HTML. SDK exceptions and upstream envelopes are not forwarded to the
 
 | Symptom | What to check |
 | --- | --- |
+| Blueprint validation fails | Check the specific field named in the terminal, choose supported settings in Agent Kit, and export again. Doctor makes no API call. |
+| Blueprint changes do not appear | Check AIVANA_BLUEPRINT_FILE, replace the selected file, restart the server, and reload the browser. |
 | Startup says the key is missing | Fill in `.env`, run from this example folder, and restart. |
 | `--env-file` is unknown | Upgrade to Node.js 20.6 or newer. |
 | Aivana rejected the key | Confirm the key is active and matches the configured API environment. Restart after changing it. |

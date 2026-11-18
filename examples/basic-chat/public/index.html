@@ -19,7 +19,7 @@
         <nav class="header-actions" aria-label="Chat controls">
           <a class="docs" href="https://developers.aivana.ai/docs/quickstart" target="_blank" rel="noreferrer">Quickstart ↗</a>
           <button id="theme" class="secondary" type="button" aria-label="Switch color theme">Theme</button>
-          <button id="reset" class="new-chat" type="button"><span aria-hidden="true">＋</span> New chat</button>
+          <button id="reset" disabled class="new-chat" type="button"><span aria-hidden="true">＋</span> New chat</button>
         </nav>
       </header>
       <main>
@@ -30,13 +30,14 @@
               <p>A question, an idea, a little inspiration. Start here.</p>
             </div>
           </div>
+          <p id="configuration-note" class="configuration-note" role="status" hidden></p>
           <p id="status" class="status" role="status"></p>
           <p id="error" class="error" role="alert" hidden></p>
           <form id="composer" class="composer">
             <label class="sr-only" for="message">Message Aivana</label>
-            <textarea id="message" name="message" rows="1" maxlength="4000" placeholder="Ask anything..." required aria-describedby="composer-hint"></textarea>
+            <textarea id="message" disabled name="message" rows="1" maxlength="4000" placeholder="Ask anything..." required aria-describedby="composer-hint"></textarea>
             <button id="stop" class="secondary" type="button" hidden>Stop</button>
-            <button id="send" class="primary" type="submit" aria-label="Send message"><span aria-hidden="true">↑</span></button>
+            <button id="send" disabled class="primary" type="submit" aria-label="Send message"><span aria-hidden="true">↑</span></button>
           </form>
           <div id="suggestions" class="suggestions" aria-label="Ideas to get started">
             <button class="suggestion" type="button" data-prompt="Share some advice for turning an idea into a realistic plan.">Share advice</button>

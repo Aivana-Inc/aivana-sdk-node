@@ -13,6 +13,8 @@ const stop = document.querySelector("#stop");
 let history = [];
 let context = {};
 let active;
+let ready = false;
+let historyMode = "session";
 
 const themeButton = document.querySelector("#theme");
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -52,19 +54,21 @@ function render(pending) {
 }
 
 function busy(value) {
-  send.disabled = value;
-  input.disabled = value;
-  suggestions.querySelectorAll("button").forEach((button) => { button.disabled = value; });
+  send.disabled = value || !ready;
+  input.disabled = value || !ready;
+  document.querySelector("#reset").disabled = !ready;
+  suggestions.querySelectorAll("button").forEach((button) => { button.disabled = value || !ready; });
   stop.hidden = !value;
   form.setAttribute("aria-busy", String(value));
 }
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (active) return;
+  if (active || !ready) return;
   const message = input.value.trim();
   if (!message || message.length > LIMITS.messageChars) return;
-  const sentHistory = recentHistory(history, message);
+  const displayHistory = recentHistory(history, message);
+  const sentHistory = historyMode === "session" ? displayHistory : [];
   const controller = new AbortController();
   active = controller;
   error.hidden = true;
@@ -74,13 +78,13 @@ form.addEventListener("submit", async (event) => {
   try {
     const response = await fetch("/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, history: sentHistory, context }), signal: controller.signal,
+      body: JSON.stringify({ message, history: sentHistory, context: historyMode === "session" ? context : {} }), signal: controller.signal,
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error?.message || "The request could not be completed.");
     if (controller.signal.aborted) return;
     if (typeof result.answer !== "string") throw new Error("The app received an unexpected response.");
-    history = recentHistory([...sentHistory, { role: "user", content: message }, { role: "assistant", content: result.answer }]);
+    history = recentHistory([...displayHistory, { role: "user", content: message }, { role: "assistant", content: result.answer }]);
     context = result.context ?? {};
     input.value = "";
     resizeInput();
@@ -130,10 +134,33 @@ input.addEventListener("input", resizeInput);
 
 document.querySelectorAll("[data-prompt]").forEach((button) => {
   button.addEventListener("click", () => {
-    if (active) return;
+    if (active || !ready) return;
     input.value = button.dataset.prompt;
     resizeInput();
     input.focus();
   });
 });
 window.addEventListener("pagehide", () => active?.abort());
+
+// Load only public behavior flags. Instructions and the definition stay on the server.
+busy(false);
+status.textContent = "Loading chat settings…";
+try {
+  const response = await fetch("/api/config");
+  const settings = await response.json();
+  if (!response.ok || typeof settings.blueprintLoaded !== "boolean" || typeof settings.webSearch !== "boolean" || !["session", "none"].includes(settings.history)) {
+    throw new Error("Invalid settings response");
+  }
+  historyMode = settings.history;
+  const note = document.querySelector("#configuration-note");
+  if (settings.blueprintLoaded) {
+    note.hidden = false;
+    note.textContent = `Blueprint loaded · Web search ${settings.webSearch ? "allowed" : "off"}. ${historyMode === "none" ? "Each message is answered independently; earlier messages are not sent." : "Recent messages are included with follow-ups."}`;
+  }
+  ready = true;
+  status.textContent = "";
+} catch {
+  status.textContent = "";
+  error.hidden = false;
+  error.textContent = "Chat settings could not be loaded. Check the starter server and reload this page before sending.";
+} finally { busy(false); }

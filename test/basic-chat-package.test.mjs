@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, readFile, writeFile, mkdir, copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { packageChat, FILES } from '../tools/package-basic-chat.mjs';
 test('standalone Chat release excludes credentials and preserves user setup in a path with spaces', async t => {
@@ -22,4 +22,20 @@ test('standalone Chat release excludes credentials and preserves user setup in a
   const again = run(); assert.equal(again.status, 0); assert.ok(!again.stdout.includes(secret));
   assert.equal(await readFile(join(target, '.env'), 'utf8'), secret);
   await assert.rejects(packageChat(target), { code: 'EEXIST' });
+});
+
+
+test('standalone package excludes private blueprint files even when the source folder contains them', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'aivana private source '));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const source = join(root, 'source');
+  for (const file of FILES) {
+    await mkdir(dirname(join(source, file)), { recursive: true });
+    await copyFile(new URL(`../examples/basic-chat/${file}`, import.meta.url), join(source, file));
+  }
+  for (const file of ['.env', 'blueprint-definition.json', 'private-business.json']) await writeFile(join(source, file), 'private fixture data');
+  const target = await packageChat(join(root, 'download'), source);
+  const entries = await readdir(target);
+  for (const file of ['.env', 'blueprint-definition.json', 'private-business.json']) assert.equal(entries.includes(file), false);
+  assert.match(await readFile(join(target, 'blueprints/landscaping.example.json'), 'utf8'), /fictional/);
 });

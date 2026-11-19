@@ -41,12 +41,24 @@ function withTimeout(p, ms) {
   ]);
 }
 
+// Markdown table cell: escape backslashes first, then pipes, so a cell renders as written
+// and can't split into extra columns.
+export const escCell = (v) => String(v).replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
+
+// Case filter: plain-text, case-insensitive substring of the case ID or title. Regex
+// metacharacters in the argument match themselves.
+export function matchesFilter(c, filter) {
+  if (!filter) return true;
+  const f = String(filter).toLowerCase();
+  return c.id.toLowerCase().includes(f) || c.title.toLowerCase().includes(f);
+}
+
 export async function runAll({ meta, isRateLimit, pace = 6000, filter = null }) {
   const haveKey = !!(process.env.AIVANA_API_KEY || "").trim();
   const rows = [];
   let lastLive = 0;
   for (const c of cases) {
-    if (filter && !filter.test(c.id) && !filter.test(c.title)) continue;
+    if (!matchesFilter(c, filter)) continue;
     const row = { id: c.id, area: c.area, title: c.title, mode: c.live ? "live" : "offline",
                   result: "", finding: "", detail: "" };
     rows.push(row);
@@ -88,13 +100,12 @@ function write(rows, meta, haveKey, suffix = "") {
   mkdirSync(dir, { recursive: true });
   const counts = {};
   for (const r of rows) counts[r.result] = (counts[r.result] || 0) + 1;
-  const esc = (v) => String(v).replace(/\|/g, "\\|");
   const md = [
     "# Aivana Node SDK - validation matrix", "",
     `${meta} | key set: ${haveKey ? "yes" : "no"} | ${new Date().toISOString().slice(0, 19)}`, "",
     "Totals: " + Object.entries(counts).sort().map(([k, v]) => `${k} ${v}`).join(", "), "",
     "| ID | Area | Check | Mode | Result | Finding | Detail |", "|---|---|---|---|---|---|---|",
-    ...rows.map((r) => `| ${[r.id, r.area, r.title, r.mode, r.result, r.finding, r.detail].map(esc).join(" | ")} |`),
+    ...rows.map((r) => `| ${[r.id, r.area, r.title, r.mode, r.result, r.finding, r.detail].map(escCell).join(" | ")} |`),
   ].join("\n") + "\n";
   writeFileSync(join(dir, `matrix${suffix}.md`), md);
   const csvq = (v) => `"${String(v).replace(/"/g, '""')}"`;

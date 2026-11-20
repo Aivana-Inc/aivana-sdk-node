@@ -2,8 +2,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { escCell, matchesFilter, verdict } from "./harness.mjs";
+
+// The cases below start run.mjs as a real process, which imports the SDK under test from validation/node_modules. The
+// repository's own CI runs `node --test` from the repo root, finds this file, and does not install that folder, so
+// without it these cases are skipped (with the reason) instead of failing. Run `npm ci` in validation/ to run them.
+const here = fileURLToPath(new URL("..", import.meta.url));
+const needsInstall = existsSync(here + "node_modules/@aivana/sdk/package.json")
+  ? {} : { skip: "run `npm ci` in validation/ to run this (the repository's CI does not install it)" };
 
 // Split a Markdown table row on unescaped pipes, then unescape \\ and \| the way a renderer does.
 function parseRow(row) {
@@ -84,7 +92,7 @@ test("verdict: a FAIL outranks a skipped live case", () => {
   assert.equal(verdict([row("FAIL"), row("SKIP", "live")], { requireLive: true }).code, 1);
 });
 
-test("run.mjs stops with exit 2, before running anything, when the installed SDK is not the expected version", () => {
+test("run.mjs stops with exit 2, before running anything, when the installed SDK is not the expected version", needsInstall, () => {
   const dir = fileURLToPath(new URL("..", import.meta.url));
   const r = spawnSync(process.execPath, ["run.mjs"], { cwd: dir, encoding: "utf8",
     env: { ...process.env, AIVANA_API_KEY: "", AIVANA_RESULTS_DIR: dir + "/.tmp-results-test", AIVANA_EXPECT_SDK_VERSION: "0.0.0-not-this" } });
@@ -93,7 +101,7 @@ test("run.mjs stops with exit 2, before running anything, when the installed SDK
   assert.ok(!/^ok /m.test(r.stdout));
 });
 
-test("run.mjs exits 2 when the filter matches no case (the verdict reaches the process exit code)", () => {
+test("run.mjs exits 2 when the filter matches no case (the verdict reaches the process exit code)", needsInstall, () => {
   const dir = fileURLToPath(new URL("..", import.meta.url));
   const r = spawnSync(process.execPath, ["run.mjs", "NO-SUCH-CASE-ANYWHERE"], { cwd: dir, encoding: "utf8",
     env: { ...process.env, AIVANA_API_KEY: "", AIVANA_RESULTS_DIR: dir + "/.tmp-results-test" } });
@@ -101,7 +109,7 @@ test("run.mjs exits 2 when the filter matches no case (the verdict reaches the p
   assert.match(r.stdout, /VERDICT: no case ran/);
 });
 
-test("run.mjs stops with exit 2 when the installed CLI is not the expected version", () => {
+test("run.mjs stops with exit 2 when the installed CLI is not the expected version", needsInstall, () => {
   const dir = fileURLToPath(new URL("..", import.meta.url));
   const r = spawnSync(process.execPath, ["run.mjs"], { cwd: dir, encoding: "utf8",
     env: { ...process.env, AIVANA_API_KEY: "", AIVANA_RESULTS_DIR: dir + "/.tmp-results-test", AIVANA_EXPECT_CLI_VERSION: "0.0.0-not-this" } });

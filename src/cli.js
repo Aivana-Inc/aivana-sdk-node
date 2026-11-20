@@ -228,6 +228,8 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     stdout: io.stdout ?? process.stdout,
     stderr: io.stderr ?? process.stderr,
     fetch: io.fetch,
+    // Tests shorten the wait before a rate-limit retry; a real run keeps the SDK's default.
+    maxRetryWaitMs: io.maxRetryWaitMs,
     stdinWaitMs: io.stdinWaitMs ?? STDIN_WAIT_MS,
     platform: io.platform ?? process.platform,
   };
@@ -407,7 +409,8 @@ async function ask(ctx, opts) {
   const options = Object.fromEntries(Object.entries(chosen).filter(([, v]) => v !== undefined));
   options.metadata = { request_source: REQUEST_SOURCE };
 
-  const client = new Aivana({ apiKey: key, apiBase, timeoutMs: TIMEOUT_MS, fetch: ctx.fetch });
+  const client = new Aivana({ apiKey: key, apiBase, timeoutMs: TIMEOUT_MS, fetch: ctx.fetch,
+                              maxRetryWaitMs: ctx.maxRetryWaitMs });
   try {
     if (opts.json) return await askJson(ctx, client, question, options, opts.quiet);
     return await askStreaming(ctx, client, question, options, opts);

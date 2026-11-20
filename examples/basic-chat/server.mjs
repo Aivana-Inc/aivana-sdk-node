@@ -1,11 +1,14 @@
+import { loadBlueprint } from "./blueprint.mjs";
 import Aivana from "@aivana/sdk";
 import { createChatServer } from "./app.mjs";
 import { readConfiguration } from "./config.mjs";
 
 try {
   const { apiKey, apiBase, port } = readConfiguration();
+  const blueprint = loadBlueprint();
   const client = new Aivana({ apiKey, ...(apiBase ? { apiBase } : {}), timeoutMs: 120_000 });
-  const server = createChatServer({ client });
+  const server = createChatServer({ client, blueprint });
+  console.log(blueprint ? "Exported blueprint loaded locally. Restart and reload after replacing the file." : "Using the default chat settings. Add blueprint-definition.json to use an Agent Kit export.");
   server.on("error", () => { console.error("The local chat server could not start. Check PORT or whether another app is using it."); process.exitCode = 1; });
   server.listen(port, "127.0.0.1", () => console.log(`Basic AI Chat: http://127.0.0.1:${port}\nAPI key stays on this server. Messages use Aivana account credit. Press Ctrl+C to stop.`));
   const stop = () => { server.close(); server.closeAllConnections(); };

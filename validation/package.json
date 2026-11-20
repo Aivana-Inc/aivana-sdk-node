@@ -1,0 +1,16 @@
+{
+  "name": "aivana-sdk-validation-node",
+  "private": true,
+  "type": "module",
+  "description": "Validation suite for the official @aivana/sdk (OSU CSE Capstone, Charter Rev2 Deliverable 2)",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "validate": "node run.mjs"
+  },
+  "dependencies": {
+    "@aivana/sdk": "0.7.1",
+    "@aivana/cli": "0.7.1"
+  }
+}

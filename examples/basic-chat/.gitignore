@@ -1,1 +1,8 @@
+.env
+.env.*
 !.env.example
+node_modules/
+*.log
+
+# Local business configuration may contain private instructions.
+blueprint-definition.json

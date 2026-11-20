@@ -1,11 +1,14 @@
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
+import { compileBlueprint } from "./blueprint.mjs";
 import { LIMITS } from "./public/conversation.mjs";
 
 const ASSETS = new Map([
   ["/", ["text/html; charset=utf-8", "index.html"]],
   ["/app.js", ["text/javascript; charset=utf-8", "app.js"]],
   ["/conversation.mjs", ["text/javascript; charset=utf-8", "conversation.mjs"]],
+  ["/assets/aivana-logo.avif", ["image/avif", "assets/aivana-logo.avif"]],
+  ["/assets/aivana-sparkle.avif", ["image/avif", "assets/aivana-sparkle.avif"]],
   ["/styles.css", ["text/css; charset=utf-8", "styles.css"]],
 ].map(([route, [type, file]]) => [route, { type, data: readFileSync(new URL(`./public/${file}`, import.meta.url)) }]));
 
@@ -77,14 +80,16 @@ function publicFailure(error, timedOut) {
 }
 
 /** Stateless chat handler; inject an SDK client rather than sharing one SDK chat() across browsers. */
-export function createChatServer({ client, timeoutMs = 120_000 } = {}) {
+export function createChatServer({ client, blueprint = null, timeoutMs = 120_000 } = {}) {
   if (typeof client?.generate !== "function") throw new Error("An Aivana SDK client is required.");
+  const profile = blueprint === null ? { options: { maxTokens: 800, webSearch: false }, history: "session" } : compileBlueprint(blueprint);
+  const publicConfig = { blueprintLoaded: blueprint !== null, history: profile.history, webSearch: profile.options.webSearch };
   const activeRequests = new Set();
   const server = createServer(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
-    res.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+    res.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
     const hosts = [`127.0.0.1:${req.socket.localPort}`, `localhost:${req.socket.localPort}`];
     if (!hosts.includes(req.headers.host)) return json(res, 403, { error: { code: "forbidden", message: "Open this starter on its local address." } });
 
@@ -94,6 +99,7 @@ export function createChatServer({ client, timeoutMs = 120_000 } = {}) {
       res.writeHead(200, { "Content-Type": asset.type });
       return res.end(asset.data);
     }
+    if (path === "/api/config" && req.method === "GET") return json(res, 200, publicConfig);
     if (path !== "/api/chat") return json(res, 404, { error: { code: "not_found", message: "Not found." } });
     if (req.method !== "POST") { res.setHeader("Allow", "POST"); return json(res, 405, { error: { code: "method_not_allowed", message: "Use POST for chat." } }); }
     if (req.headers.origin !== `http://${req.headers.host}` || req.headers["sec-fetch-site"] === "cross-site") {
@@ -114,16 +120,17 @@ export function createChatServer({ client, timeoutMs = 120_000 } = {}) {
       const { message, history, context } = validate(await readBody(req));
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       const result = await client.generate(null, {
-        messages: [...history, { role: "user", content: message }], ...context,
-        maxTokens: 800, webSearch: false, signal: controller.signal,
+        ...profile.options,
+        messages: [...(profile.history === "session" ? history : []), { role: "user", content: message }],
+        ...(profile.history === "session" ? context : {}), signal: controller.signal,
       });
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       if (typeof result?.answer !== "string" || !result.answer.trim() || result.answer.length > 16_000) {
         throw new Error("Invalid answer");
       }
       const nextContext = {};
-      if (typeof result.intent?.name === "string" && result.intent.name.length <= 256) nextContext.previousIntent = result.intent.name;
-      if (typeof result.pending_action === "string" && result.pending_action.length <= 8_000) nextContext.pendingAction = result.pending_action;
+      if (profile.history === "session" && typeof result.intent?.name === "string" && result.intent.name.length <= 256) nextContext.previousIntent = result.intent.name;
+      if (profile.history === "session" && typeof result.pending_action === "string" && result.pending_action.length <= 8_000) nextContext.pendingAction = result.pending_action;
       json(res, 200, { answer: result.answer, context: nextContext });
     } catch (error) {
       const [status, code, message] = error instanceof RequestError

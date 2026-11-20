@@ -31,7 +31,7 @@ const ANSWER = { status: 200, events: [...STAGES, ["delta", { text: "Hello" }],
 
 function io(api, overrides = {}) {
   return { env: { AIVANA_API_KEY: KEY }, stdin: { isTTY: true }, stdout: capture(),
-           stderr: capture(), fetch: api.fetch, ...overrides };
+           stderr: capture(), fetch: api.fetch, maxRetryWaitMs: 5, ...overrides };
 }
 
 test("progress draws on a terminal and is wiped before the answer", async () => {

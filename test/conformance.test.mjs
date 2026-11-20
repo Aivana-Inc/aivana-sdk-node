@@ -72,7 +72,7 @@ for (const scenario of SUITE.scenarios) {
       const piped = "stdin" in scenario ? scenario.stdin : defaults.stdin;
 
       const code = await main(fill(scenario.argv, tmp), {
-        env, stdin: stdin(piped), stdout, stderr, fetch: api.fetch,
+        env, stdin: stdin(piped), stdout, stderr, fetch: api.fetch, maxRetryWaitMs: 5,
       });
       const out = stdout.text;
       const err = stderr.text;

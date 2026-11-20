@@ -395,7 +395,7 @@ and `requestId` — quote `requestId` when reporting a problem.
 |---|---|
 | `AuthError` | missing or invalid API key (401) |
 | `ForbiddenError` | key lacks access (403) |
-| `RateLimitError` | rate limit or quota exhausted (429) |
+| `RateLimitError` | rate limit or quota exhausted (429); `retryAfter` is the seconds the API said to wait, or `null` |
 | `InvalidRequestError` | malformed request (400), or a response schema Aivana refuses (422, `code` `invalid_response_schema`); `response_format_not_available` means the schema is fine but this API does not serve JSON Schema (Strict) yet |
 | `UpstreamError` | model provider failed (502), or no answer met your response schema (`code` `structured_output_failed`, not billed) |
 
@@ -408,10 +408,35 @@ import { RateLimitError } from "@aivana/sdk";
 try {
   await client.generate("...");
 } catch (err) {
-  if (err instanceof RateLimitError) await backoff(err.requestId);
+  if (err instanceof RateLimitError) console.log(`still limited; try again in ${err.retryAfter ?? "a minute or so"}s`);
   else throw err;
 }
 ```
+
+### Rate limits and retries
+
+The SDK asks again for you after a **per-minute rate limit**: up to 2 more tries, waiting
+as long as the API's `Retry-After` says (plus a moment of random spread, so a group of
+developers behind the same office or campus network, who share one per-address allowance,
+don't all return in the same second). If the wait would be longer than 30 seconds, it
+doesn't wait: you get the `RateLimitError` straight away, with `retryAfter` set.
+
+**Nothing else is retried automatically**, on purpose. A quota or spend limit (also a 429,
+but with its own `code`), a timeout, a server error or a dropped connection may already have
+been billed, and asking again could bill it twice. Those reach you as errors; whether to
+repeat the call is your decision.
+
+```js
+const client = new Aivana({
+  apiKey: process.env.AIVANA_API_KEY,
+  maxRetries: 4,            // default 2; 0 turns retries off
+  maxRetryWaitMs: 60_000,   // default 30000: the longest single wait
+});
+await client.generate("...", { maxRetries: 0 });   // one call's own setting wins
+```
+
+Retries apply to `generate()`, `generateStream()` (before the first byte of the answer, never
+in the middle of one), `chat()` and `quotas()`. An `AbortSignal` also cancels a wait.
 
 ## Configuration
 
@@ -419,6 +444,7 @@ try {
 new Aivana({
   apiKey: process.env.AIVANA_API_KEY,
   timeoutMs: 120_000,   // default
+  maxRetries: 2,        // default: ask again after a per-minute rate limit (see above)
   apiBase: "...",       // override the API endpoint
   fetch: customFetch,   // inject your own fetch
 });

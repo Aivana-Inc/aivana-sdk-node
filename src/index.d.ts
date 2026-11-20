@@ -24,6 +24,13 @@ export interface AivanaConfig {
   apiKey?: string;
   apiBase?: string;
   timeoutMs?: number;
+  /** How many times to ask again after a per-minute rate limit. Default 2; 0 turns it off.
+   *  Nothing else is ever retried automatically: a timeout, a server error or a dropped
+   *  connection may have been billed, and asking again could bill it twice. */
+  maxRetries?: number;
+  /** The longest single wait before such a retry, in milliseconds. Default 30000. A longer
+   *  wait is not taken: the `RateLimitError` is thrown instead, with `retryAfter` set. */
+  maxRetryWaitMs?: number;
   fetch?: typeof fetch;
 }
 
@@ -61,6 +68,8 @@ export type ResponseFormat =
 
 export interface GenerateOptions {
   mode?: Mode;
+  /** Retries after a per-minute rate limit for this call only; overrides the client's. */
+  maxRetries?: number;
   /** Omit to let Aivana choose it for each request. */
   temperature?: number;
   /** Ceiling on answer length. Omit to let Aivana size the answer to the question;
@@ -209,7 +218,12 @@ export class AivanaError extends Error {
 }
 export class AuthError extends AivanaError {}
 export class ForbiddenError extends AivanaError {}
-export class RateLimitError extends AivanaError {}
+export class RateLimitError extends AivanaError {
+  /** Seconds the API said to wait (its Retry-After), or null when it did not say. Several
+   *  developers behind one office or campus network share the API's per-address
+   *  allowance, so this is when it frees up. */
+  retryAfter: number | null;
+}
 export class InvalidRequestError extends AivanaError {}
 export class UpstreamError extends AivanaError {}
 

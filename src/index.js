@@ -32,6 +32,12 @@
 // must pass `apiBase` explicitly.
 const DEFAULT_BASE = "https://api.aivana.ai";
 const DEFAULT_TIMEOUT_MS = 120_000;
+// Automatic retries. Only a per-minute rate limit is ever retried (see _retryDelayMs): the
+// API refuses those before it does any work, so asking again cannot bill twice. Anything
+// else, a timeout, a 5xx, a dropped connection, may have been billed, and is never repeated
+// behind the caller's back.
+const DEFAULT_MAX_RETRIES = 2;
+const DEFAULT_MAX_RETRY_WAIT_MS = 30_000;
 // Your own system prompt is ADDITIVE: Aivana keeps its own instructions and they
 // win on conflict, so `system` shapes persona, tone, format and domain focus but
 // cannot change what Aivana will disclose about how an answer was produced.
@@ -58,7 +64,16 @@ export class AivanaError extends Error {
   }
 }
 export class AuthError extends AivanaError { constructor(m, o) { super(m, o); this.name = "AuthError"; } }
-export class RateLimitError extends AivanaError { constructor(m, o) { super(m, o); this.name = "RateLimitError"; } }
+export class RateLimitError extends AivanaError {
+  constructor(m, o = {}) {
+    super(m, o);
+    this.name = "RateLimitError";
+    // How long the API said to wait, in SECONDS (its Retry-After), or null when it did not
+    // say. Several developers behind one office or campus network share the API's
+    // per-address allowance, so this is how long until it frees up, not a fixed penalty.
+    this.retryAfter = o.retryAfter ?? null;
+  }
+}
 export class ForbiddenError extends AivanaError { constructor(m, o) { super(m, o); this.name = "ForbiddenError"; } }
 export class InvalidRequestError extends AivanaError { constructor(m, o) { super(m, o); this.name = "InvalidRequestError"; } }
 export class UpstreamError extends AivanaError { constructor(m, o) { super(m, o); this.name = "UpstreamError"; } }
@@ -69,7 +84,20 @@ const REQUEST_MISTAKE_CODES = new Set([
   "structured_output_streaming_not_supported",
 ]);
 
-function _classify(status, payload) {
+// Retry-After is whole seconds or an HTTP date. Anything else, a negative number or text,
+// is treated as "not said", never as a wait.
+function _parseRetryAfter(value, now = Date.now()) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (text === "") return null;
+  if (/^\d+(\.\d+)?$/.test(text)) return Number(text);
+  // Date.parse is lenient (it reads "-5" as a year), and a real HTTP date always has a month name.
+  if (!/[A-Za-z]{3}/.test(text)) return null;
+  const at = Date.parse(text);
+  return Number.isNaN(at) ? null : Math.max(0, (at - now) / 1000);
+}
+
+function _classify(status, payload, retryAfter = null) {
   const err = (payload && payload.error) || {};
   const opts = {
     code: err.code || "internal_error",
@@ -80,7 +108,15 @@ function _classify(status, payload) {
   const msg = err.message || `request failed (HTTP ${status})`;
   if (status === 401 || opts.code === "auth") return new AuthError(msg, opts);
   if (status === 403 || opts.code === "forbidden") return new ForbiddenError(msg, opts);
-  if (status === 429 || opts.code === "rate_limit_exceeded") return new RateLimitError(msg, opts);
+  if (status === 429 || opts.code === "rate_limit_exceeded") {
+    // The header is the API's own word; the body's retry_after_ms is the fallback for routes
+    // that put it there instead.
+    let wait = retryAfter;
+    if (wait === null && typeof err.retry_after_ms === "number" && err.retry_after_ms >= 0) {
+      wait = err.retry_after_ms / 1000;
+    }
+    return new RateLimitError(msg, { ...opts, retryAfter: wait });
+  }
   // A schema the API refuses, a strict schema asked to stream, and a strict schema asked of
   // an environment that does not serve it (`response_format_not_available`: nothing is
   // wrong with the schema) are the caller's request to fix like any other 422: codes of their own so a caller can tell them
@@ -113,7 +149,8 @@ async function _errorFrom(resp, hasKey) {
   }
   let payload = null;
   try { payload = await resp.json(); } catch { /* fall through */ }
-  const err = _classify(resp.status, payload);
+  const header = resp.headers && typeof resp.headers.get === "function" ? resp.headers.get("retry-after") : null;
+  const err = _classify(resp.status, payload, _parseRetryAfter(header));
   // A request with no key is still sent (a caller's own proxy may add one), so the
   // missing key is only named here, once the API has refused it.
   if (err instanceof AuthError && !hasKey) {
@@ -153,6 +190,38 @@ function _refuseStrictStream(body) {
 }
 
 
+function _checkRetries(value, name) {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new InvalidRequestError(`${name} must be a whole number, 0 or more.`, { code: "invalid_request" });
+  }
+}
+
+function _checkRetryWait(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new InvalidRequestError("maxRetryWaitMs must be a number of milliseconds, 0 or more.",
+                                  { code: "invalid_request" });
+  }
+}
+
+// How long to wait before asking again, in ms, or null for "do not retry". Only a per-minute
+// rate limit qualifies. A quota or spend limit is also a 429, but it clears in hours or at
+// the next period, so retrying it is wasted time (its own code says which it is). A timeout,
+// a 5xx or a dropped connection is never retried: the work may have been done and billed,
+// and asking again could bill it twice.
+function _retryDelayMs(err, attempt, maxRetries, maxWaitMs) {
+  if (!(err instanceof RateLimitError) || err.code !== "rate_limit_exceeded") return null;
+  if (attempt >= maxRetries) return null;
+  const base = err.retryAfter !== null && err.retryAfter !== undefined
+    ? err.retryAfter * 1000
+    : Math.min(1000 * 2 ** attempt, maxWaitMs);
+  if (base > maxWaitMs) return null;
+  // Everyone behind one address is told the same wait, so spread them a little: a room of
+  // developers retrying in the same instant would hit the limit together again.
+  const jitter = Math.random() * Math.min(base * 0.25, 1000);
+  return Math.min(base + jitter, maxWaitMs);
+}
+
+
 /** Main client class. */
 export class Aivana {
   /**
@@ -160,12 +229,22 @@ export class Aivana {
    * @param {string} [cfg.apiKey]   — X-API-Key for server-to-server use.
    * @param {string} [cfg.apiBase]  — API base URL. Defaults to the hosted API.
    * @param {number} [cfg.timeoutMs] — Per-request timeout in ms.
+   * @param {number} [cfg.maxRetries] — How many times to ask again after a per-minute rate
+   *   limit (default 2; 0 turns it off). Nothing else is ever retried automatically.
+   * @param {number} [cfg.maxRetryWaitMs] — The longest single wait before such a retry, in ms
+   *   (default 30000). A longer wait is not taken: the RateLimitError is thrown instead.
    * @param {object} [cfg.fetch]    — Custom fetch (e.g. for testing).
    */
-  constructor({ apiKey = null, apiBase = DEFAULT_BASE, timeoutMs = DEFAULT_TIMEOUT_MS, fetch: fetchImpl = null } = {}) {
+  constructor({ apiKey = null, apiBase = DEFAULT_BASE, timeoutMs = DEFAULT_TIMEOUT_MS,
+                maxRetries = DEFAULT_MAX_RETRIES, maxRetryWaitMs = DEFAULT_MAX_RETRY_WAIT_MS,
+                fetch: fetchImpl = null } = {}) {
+    _checkRetries(maxRetries, "maxRetries");
+    _checkRetryWait(maxRetryWaitMs);
     this.apiKey = apiKey;
     this.apiBase = apiBase.replace(/\/$/, "");
     this.timeoutMs = timeoutMs;
+    this.maxRetries = maxRetries;
+    this.maxRetryWaitMs = maxRetryWaitMs;
     this._fetch = fetchImpl || globalThis.fetch.bind(globalThis);
   }
 
@@ -257,7 +336,38 @@ export class Aivana {
     return b;
   }
 
-  async _post(path, body, { stream = false, signal = null } = {}) {
+  // Waits, and stops early if the caller aborts: an abort during the wait ends the call as an
+  // abort does anywhere else, with no further request.
+  _sleep(ms, signal = null) {
+    return new Promise((resolve, reject) => {
+      if (signal && signal.aborted) return reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+      const timer = setTimeout(() => { if (signal) signal.removeEventListener("abort", onAbort); resolve(); }, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+      };
+      if (signal) signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+
+  async _retrying(attemptOnce, { signal = null, maxRetries = this.maxRetries } = {}) {
+    _checkRetries(maxRetries, "maxRetries");
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await attemptOnce();
+      } catch (err) {
+        const wait = _retryDelayMs(err, attempt, maxRetries, this.maxRetryWaitMs);
+        if (wait === null) throw err;
+        await this._sleep(wait, signal);
+      }
+    }
+  }
+
+  async _post(path, body, { stream = false, signal = null, maxRetries = this.maxRetries } = {}) {
+    return this._retrying(() => this._postOnce(path, body, { stream, signal }), { signal, maxRetries });
+  }
+
+  async _postOnce(path, body, { stream = false, signal = null } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     const userSignal = signal;
@@ -287,7 +397,8 @@ export class Aivana {
 
   /** Sync-style generation. Returns the full GenerateResponse JSON. */
   async generate(prompt, opts = {}) {
-    return this._post("/v1/generate", this._body({ prompt, ...opts }), { signal: opts.signal });
+    return this._post("/v1/generate", this._body({ prompt, ...opts }),
+                      { signal: opts.signal, maxRetries: opts.maxRetries });
   }
 
   /** Streaming generation. Yields { event, data } chunks. */
@@ -297,7 +408,7 @@ export class Aivana {
     const resp = await this._post(
       "/v1/generate:stream",
       body,
-      { stream: true, signal: opts.signal },
+      { stream: true, signal: opts.signal, maxRetries: opts.maxRetries },
     );
     yield* _parseSSE(resp.body);
   }
@@ -316,13 +427,15 @@ export class Aivana {
    * reports usage only.
    */
   async quotas() {
-    const resp = await this._fetch(this.apiBase + "/v1/quotas", {
-      headers: this._headers(),
-      credentials: "omit",
-      redirect: "manual",            // see _isRedirect
+    return this._retrying(async () => {
+      const resp = await this._fetch(this.apiBase + "/v1/quotas", {
+        headers: this._headers(),
+        credentials: "omit",
+        redirect: "manual",            // see _isRedirect
+      });
+      if (!resp.ok) throw await _errorFrom(resp, Boolean(this.apiKey));
+      return await _json(resp);
     });
-    if (!resp.ok) throw await _errorFrom(resp, Boolean(this.apiKey));
-    return await _json(resp);
   }
 }
 

@@ -36,6 +36,8 @@ const PROMPT = "Reply with the single word: ready.";
 // Small on purpose. effort "low" and web search off keep the run short and the bill to a few cents.
 const TINY = { maxTokens: 300, effort: "low", webSearch: false };
 const API_DEFAULT = "https://api.aivana.ai";
+// Long enough that the request is really in flight (a real answer takes seconds), short enough to be quick.
+const CANCEL_AFTER_MS = 250;
 
 const apiKey = process.env.AIVANA_API_KEY || "";
 const dryRun = process.argv.includes("--dry-run");
@@ -219,7 +221,7 @@ async function main() {
   await check("a request cancelled with an AbortSignal stops promptly", async () => {
     spendOne("abort");
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), 25);
+    const timer = setTimeout(() => ac.abort(), CANCEL_AFTER_MS);
     const started = Date.now();
     try {
       await client.generate(PROMPT, { ...TINY, signal: ac.signal });
@@ -231,7 +233,7 @@ async function main() {
     } finally {
       clearTimeout(timer);
     }
-    throw new Error("the request finished before it could be cancelled, so cancelling was not tested");
+    throw new Error(`the request finished within ${CANCEL_AFTER_MS} ms, before it could be cancelled, so cancelling was not tested`);
   });
 
   return finish(results.every((r) => r.ok) ? 0 : 1);

@@ -53,7 +53,7 @@ async function withStub(quirk, run) {
         const e = envelope("invalid_request", "The request body or query is not valid.", 422);
         return send(e.status, e.body);
       }
-      const delay = quirk === "answers-instantly" ? 0 : 200;
+      const delay = quirk === "answers-instantly" ? 0 : 600;
       if (req.url === "/v1/generate") {
         return setTimeout(() => {
           if (res.destroyed) return;

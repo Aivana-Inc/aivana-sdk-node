@@ -8,7 +8,7 @@
 // Python suite, so the two SDKs can be compared row by row.
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -51,6 +51,21 @@ export function matchesFilter(c, filter) {
   if (!filter) return true;
   const f = String(filter).toLowerCase();
   return c.id.toLowerCase().includes(f) || c.title.toLowerCase().includes(f);
+}
+
+// What a run means for a script or a release gate. Read the rows, not the console:
+//   0  nothing unexpected: PASS, DEFECT (known), FIXED? (re-check) and SKIP all leave it at 0
+//   1  at least one FAIL: the SDK or CLI does something other than what the docs (or a documented defect) say
+//   2  nothing ran at all (a filter that matches no case): a gate must never pass on zero cases
+//   3  AIVANA_REQUIRE_LIVE=1 and a live case was skipped (no key, or a 429): live behaviour was not checked
+// FIXED? is good news that needs a person to update the report, so it is a notice, never a failure.
+export function verdict(rows, { requireLive = false } = {}) {
+  const failed = rows.filter((r) => r.result === "FAIL").map((r) => r.id);
+  if (failed.length) return { code: 1, reasons: [`${failed.length} unexpected failure(s): ${failed.join(", ")}`] };
+  if (rows.length === 0) return { code: 2, reasons: ["no case ran (does the filter match anything?)"] };
+  const unlive = requireLive ? rows.filter((r) => r.mode === "live" && r.result === "SKIP").map((r) => r.id) : [];
+  if (unlive.length) return { code: 3, reasons: [`${unlive.length} live case(s) skipped but AIVANA_REQUIRE_LIVE=1: ${unlive.join(", ")}`] };
+  return { code: 0, reasons: [] };
 }
 
 export async function runAll({ meta, isRateLimit, pace = 6000, filter = null }) {
@@ -96,7 +111,8 @@ function print(r) {
 }
 
 function write(rows, meta, haveKey, suffix = "") {
-  const dir = join(ROOT, "results");
+  // AIVANA_RESULTS_DIR keeps a gate run from overwriting the committed evidence in results/.
+  const dir = process.env.AIVANA_RESULTS_DIR ? resolve(process.env.AIVANA_RESULTS_DIR) : join(ROOT, "results");
   mkdirSync(dir, { recursive: true });
   const counts = {};
   for (const r of rows) counts[r.result] = (counts[r.result] || 0) + 1;

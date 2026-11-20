@@ -11,7 +11,9 @@ import { kase, ROOT } from "../lib/harness.mjs";
 import { OFFLINE_BASE, REAL_OK, REAL_401, err, json, sse, sseResponse, mockFetch, endlessStream } from "../lib/mock.mjs";
 
 const { Aivana, Chat, AivanaError, AuthError, ForbiddenError, RateLimitError, InvalidRequestError, UpstreamError } = sdk;
-const client = (fetch, extra = {}) => new Aivana({ apiKey: "ai_test_offline", apiBase: OFFLINE_BASE, fetch, ...extra });
+// maxRetries: 0 because most cases here check what one response turns into. Since 0.8.0 the SDK waits and retries
+// a per-minute 429, which would make the 429 cases wait for real (and time out); 0.7.1 ignores the unknown option.
+const client = (fetch, extra = {}) => new Aivana({ apiKey: "ai_test_offline", apiBase: OFFLINE_BASE, fetch, maxRetries: 0, ...extra });
 const rejects = async (p, cls, check) => {
   let caught;
   try { await p; } catch (e) { caught = e; }

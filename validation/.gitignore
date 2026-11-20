@@ -2,3 +2,4 @@ node_modules/
 results/evidence.jsonl
 .env
 .snippets/
+.tmp-results-test/

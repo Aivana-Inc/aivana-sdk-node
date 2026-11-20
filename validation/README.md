@@ -16,6 +16,37 @@ bash install_check.sh                      # fresh npm installs on Node 18/20/22
 
 You need Node.js 18 or newer (`node --version`). Live checks default to `https://dev-developers.aivana.ai`; set `AIVANA_API_BASE` to change that. Live calls are spaced 6 seconds apart (`AIVANA_LIVE_PACE`) to stay under the dev API's per-minute limit, so a full run takes about 4 minutes. To run only some cases, pass a filter: `bash run_validation.sh STR`.
 
+## Testing another version, or a release candidate
+
+The pin is only the default. To test a different release, or a tarball that is not published yet, set both specs (the CLI
+depends on the exact SDK version it shipped with):
+
+```bash
+npm pack                                   # in the repo root, and again in cli/
+AIVANA_SDK_SPEC=/path/aivana-sdk-0.8.0.tgz AIVANA_CLI_SPEC=/path/aivana-cli-0.8.0.tgz \
+AIVANA_EXPECT_SDK_VERSION=0.8.0 AIVANA_EXPECT_CLI_VERSION=0.8.0 \
+AIVANA_RESULTS_DIR=/tmp/validation-results \
+  bash run_validation.sh
+```
+
+Nothing is written to `package.json`. `AIVANA_EXPECT_*` makes the run stop (exit 2) unless exactly that version is installed, so
+a gate cannot pass by testing the wrong package. `AIVANA_RESULTS_DIR` keeps the run from overwriting the committed evidence.
+A version later than 0.7.1 can turn a known defect into `FIXED? (re-check)`: that is reported, and does not fail the run.
+
+## Exit code
+
+`run_validation.sh` (and `node run.mjs`) exit with a status a script or a release gate can trust:
+
+| Exit | Meaning |
+|---|---|
+| 0 | nothing unexpected: every case is PASS, DEFECT (known), FIXED? (re-check) or SKIP |
+| 1 | at least one case **FAILED** (behaviour other than the docs or a documented defect describe) |
+| 2 | nothing ran (a filter that matches no case), or the installed version is not the one expected |
+| 3 | `AIVANA_REQUIRE_LIVE=1` and a live case was skipped (no key, or a 429), so live behaviour was not checked |
+
+Without a key the live cases skip and the run still exits 0; a gate that needs live evidence sets `AIVANA_REQUIRE_LIVE=1`. The docs-example
+cases need an `aivana-ai-studio` checkout (see Layout) and skip without one, which `AIVANA_REQUIRE_LIVE` does not cover.
+
 ## Results
 
 | File | Contents |
@@ -44,4 +75,4 @@ install_check.sh    clean installs: npm on Node 18/20/22/current, npm install -g
 The CLI cases check against the @aivana/cli README and AI Studio > Docs > Command Line (`/docs/cli`). The
 Docs examples need an `aivana-ai-studio` checkout next to this suite or the SDK repo (or `AIVANA_STUDIO_REPO`).
 
-To add a case, use `kase("NODE-XXX-NN", "Area", "what it checks", fn, { live, known: "Fn: ..." })`. The SDK and CLI versions are pinned in `package.json` (`0.7.1`).
+To add a case, use `kase("NODE-XXX-NN", "Area", "what it checks", fn, { live, known: "Fn: ..." })`. The SDK and CLI versions are pinned in `package.json` (`0.7.1`), which is what a plain run tests; see below for testing another version.

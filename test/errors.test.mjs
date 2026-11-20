@@ -13,10 +13,12 @@ import Aivana, {
   RateLimitError, UpstreamError,
 } from "../src/index.js";
 
-/** A client whose next request fails with this status and body. */
+/** A client whose next request fails with this status and body. These tests are about which class
+ *  an error becomes, so retries are off: they have their own file (retry.test.mjs). */
 function failing(status, payload) {
   return new Aivana({
     apiKey: "ai_live_test",
+    maxRetries: 0,
     fetch: async () => ({ ok: false, status, json: async () => payload }),
   });
 }

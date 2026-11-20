@@ -13,7 +13,7 @@ Allow about 30 minutes.
 - [ ] 3 to 5 **separate accounts** exist, one per rehearsal person, each created like a student's will be (sign-up with
       an emailed code), each with its own API key. Keys on one account share that account's limits, so several keys
       on one account is not the same test.
-- [ ] Each account's balance is promotional tokens only, and you know what that balance is.
+- [ ] Each rehearsal account's balance is promotional tokens only (these accounts are temporary), and you know what that balance is.
 
 ## On site, on the guest or student Wi-Fi (not your usual network)
 
@@ -40,4 +40,4 @@ tool that sends free read-only calls at a measured rate from one laptop can be b
 ## After
 
 - [ ] Write down every failure with its request id and what fixed it.
-- [ ] After the event: revoke the test keys, lower the IP limits back, and delete the `production-smoke` secret or rotate it.
+- [ ] After the event: revoke the rehearsal accounts' keys and lower the IP limits back. The permanent smoke-test account and its `production-smoke` secret stay (see [README.md](README.md) for funding and rotation).

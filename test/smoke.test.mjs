@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { redact, spendOne, MAX_PAID_CALLS } from "../smoke/smoke.mjs";
+import { redact, spendOne, judgeCancel, MAX_PAID_CALLS } from "../smoke/smoke.mjs";
 
 const SCRIPT = fileURLToPath(new URL("../smoke/smoke.mjs", import.meta.url));
 const GOOD_KEY = "ai_test_" + "g".repeat(32);
@@ -45,6 +45,10 @@ async function withStub(quirk, run) {
         return res.end(JSON.stringify(envelope("rate_limit_exceeded", "Too many requests", 429).body));
       }
       if (req.url === "/v1/quotas") return send(200, { windows: { hour: {}, day: {}, month: {} } });
+      if (quirk === "no-credit" && body && body.effort === "low") {
+        const e = envelope("insufficient_credit", "Your balance is empty.", 402);
+        return send(e.status, e.body);
+      }
       if (quirk === "fails-fast" && req.url === "/v1/generate" && body.effort === "low") {
         const e = envelope("internal_error", "boom", 500);
         return send(e.status, e.body);
@@ -236,28 +240,11 @@ test("a bad request that the API accepts fails the run", async () => {
   });
 });
 
-test("a cancelled request that fails some other way is not mistaken for a clean cancel", async () => {
-  await withStub("fails-fast", async ({ base }) => {
-    const r = await runScript({ AIVANA_API_KEY: GOOD_KEY, AIVANA_API_BASE: base });
-    assert.equal(r.code, 1);
-    assert.match(r.stdout, /FAIL  a request cancelled with an AbortSignal/);
-    assert.match(r.stdout, /expected AbortError/);
-  });
-});
-
 test("a stream that never sends done fails the streaming check", async () => {
   await withStub("stream-no-done", async ({ base }) => {
     const r = await runScript({ AIVANA_API_KEY: GOOD_KEY, AIVANA_API_BASE: base });
     assert.equal(r.code, 1);
     assert.match(r.stdout, /never sent its done event/);
-  });
-});
-
-test("an answer that arrives before the cancel means cancelling was not tested, and the run fails", async () => {
-  await withStub("answers-instantly", async ({ base }) => {
-    const r = await runScript({ AIVANA_API_KEY: GOOD_KEY, AIVANA_API_BASE: base });
-    assert.equal(r.code, 1);
-    assert.match(r.stdout, /FAIL  a request cancelled with an AbortSignal/);
   });
 });
 
@@ -273,4 +260,65 @@ test("the billed-call cap is three, and a fourth billed call is refused by the s
   assert.equal(MAX_PAID_CALLS, 3);
   spendOne("one"); spendOne("two"); spendOne("three");
   assert.throws(() => spendOne("four"), /the cap is 3 per run/);
+});
+
+test("an answer that arrives before the cancel is NOT TESTED, not a failure: a healthy release is never held up by a fast API", async () => {
+  await withStub("answers-instantly", async ({ base }) => {
+    const r = await runScript({ AIVANA_API_KEY: GOOD_KEY, AIVANA_API_BASE: base });
+    assert.equal(r.code, 0, r.stdout);
+    assert.match(r.stdout, /NOT TESTED  a request cancelled with an AbortSignal/);
+    assert.match(r.stdout, /6 of 7 checks passed, 1 not tested this run; 3 billed call\(s\) made/);
+    assert.ok(!/FAIL/.test(r.stdout));
+  });
+});
+
+test("a not-tested cancel is shown as a warning annotation in GitHub, so it is visible without blocking", async () => {
+  await withStub("answers-instantly", async ({ base }) => {
+    const r = await runScript({ AIVANA_API_KEY: GOOD_KEY, AIVANA_API_BASE: base, GITHUB_ACTIONS: "true" });
+    assert.equal(r.code, 0);
+    assert.match(r.stdout, /::warning title=Smoke test: a request cancelled with an AbortSignal stops promptly::not tested this run/);
+    const quiet = await runScript({ AIVANA_API_KEY: GOOD_KEY, AIVANA_API_BASE: base });
+    assert.ok(!quiet.stdout.includes("::warning"));
+  });
+});
+
+test("an API fault that ends the request before the cancel is not blamed on cancelling", async () => {
+  await withStub("fails-fast", async ({ base }) => {
+    const r = await runScript({ AIVANA_API_KEY: GOOD_KEY, AIVANA_API_BASE: base });
+    assert.equal(r.code, 1); // the generation check fails on the 500, which is the real problem
+    assert.match(r.stdout, /FAIL  one tiny generation/);
+    assert.match(r.stdout, /NOT TESTED  a request cancelled/);
+    assert.ok(!/FAIL  a request cancelled/.test(r.stdout));
+  });
+});
+
+test("an empty test account reads as 'fund it', not as an SDK fault, and still stops the release", async () => {
+  await withStub("no-credit", async ({ base }) => {
+    const r = await runScript({ AIVANA_API_KEY: GOOD_KEY, AIVANA_API_BASE: base });
+    assert.equal(r.code, 1);
+    assert.match(r.stdout, /THE TEST ACCOUNT IS OUT OF CREDIT: fund it/);
+    assert.match(r.stdout, /not an SDK fault/);
+  });
+});
+
+// judgeCancel: the rule for the cancel check, with no network and no timing
+const ABORT = Object.assign(new Error("aborted"), { name: "AbortError" });
+test("judgeCancel: a request that was in flight and ended with AbortError promptly passes", () => {
+  assert.equal(judgeCancel({ settledBeforeAbort: false, outcome: "rejected", err: ABORT, tookMs: 3 }).status, "pass");
+});
+test("judgeCancel: a request that had already finished (answer or error) is inconclusive, never a failure", () => {
+  assert.equal(judgeCancel({ settledBeforeAbort: true, outcome: "resolved", tookMs: 0 }).status, "inconclusive");
+  assert.equal(judgeCancel({ settledBeforeAbort: true, outcome: "rejected", err: new Error("boom"), tookMs: 0 }).status, "inconclusive");
+});
+test("judgeCancel: an answer that arrives as the cancel is sent is inconclusive", () => {
+  assert.equal(judgeCancel({ settledBeforeAbort: false, outcome: "resolved", tookMs: 1 }).status, "inconclusive");
+});
+test("judgeCancel: in flight, cancelled, and the SDK surfaces some other error: that is a failure", () => {
+  const v = judgeCancel({ settledBeforeAbort: false, outcome: "rejected", err: new TypeError("fetch failed"), tookMs: 2 });
+  assert.equal(v.status, "fail");
+  assert.match(v.note, /instead of AbortError/);
+});
+test("judgeCancel: in flight but slow to take effect is a failure, and the limit is the one given", () => {
+  assert.equal(judgeCancel({ settledBeforeAbort: false, outcome: "rejected", err: ABORT, tookMs: 5_000 }).status, "fail");
+  assert.equal(judgeCancel({ settledBeforeAbort: false, outcome: "rejected", err: ABORT, tookMs: 4_999 }).status, "pass");
 });

@@ -13,6 +13,9 @@
 //   5. one tiny generation                                                  (billed, call 1 of 3)
 //   6. one tiny streamed generation                                         (billed, call 2 of 3)
 //   7. one request cancelled with an AbortSignal                            (may be billed, call 3 of 3)
+//      This check only BLOCKS when cancelling visibly failed. If the request finished before the cancel could be
+//      sent (an unusually quick answer), nothing was learned, so it is reported as "not tested" and does not fail
+//      the run: a healthy release is never held up because production answered fast. See judgeCancel().
 //
 // What it deliberately does NOT do: provoke a rate limit (counters are per server task, so it would be
 // flaky, and it would put blocked requests in the production logs), retry-on-429 behaviour (proved
@@ -24,7 +27,8 @@
 //   - the key is only ever sent to https hosts (or to localhost, for the offline test)
 //   - it asserts the SHAPE of answers (non-empty, counts above zero, ids present), never their wording
 //
-// Exit code: 0 all checks passed, 1 a check failed, 2 the setup is wrong (nothing was called).
+// Exit code: 0 no check failed (a check that could not be tried is "not tested", not a failure), 1 a check failed,
+// 2 the setup is wrong (nothing was called).
 
 import { appendFileSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -102,25 +106,60 @@ function describe(err) {
   if (err instanceof AivanaError) {
     const bits = [err.name, `status ${err.status}`, `code ${err.code}`];
     if (err.requestId) bits.push(`request ${err.requestId}`);
-    return bits.join(", ") + ` - ${String(err.message).slice(0, 160)}`;
+    let text = bits.join(", ") + ` - ${String(err.message).slice(0, 160)}`;
+    // The gate is permanent, so an empty test account must read as "fund it", not as an SDK problem.
+    if (err.status === 402 || err.code === "insufficient_credit") {
+      text += "  >> THE TEST ACCOUNT IS OUT OF CREDIT: fund it (smoke/README.md, \"Keeping it funded\"); this is not an SDK fault";
+    }
+    return text;
   }
   return `${err && err.name ? err.name : "Error"} - ${String((err && err.message) || err).slice(0, 160)}`;
 }
+
+// A check that could not be tried (the request finished before it could be cancelled) is not a failure and not a pass.
+export class Inconclusive extends Error {}
 
 const results = [];
 async function check(name, fn) {
   const started = Date.now();
   try {
     const note = await fn();
-    results.push({ name, ok: true, note: note || "", ms: Date.now() - started });
+    results.push({ name, status: "pass", note: note || "", ms: Date.now() - started });
     out(`PASS  ${name}${note ? `  (${note})` : ""}`);
     return true;
   } catch (err) {
-    results.push({ name, ok: false, note: describe(err), ms: Date.now() - started });
+    if (err instanceof Inconclusive) {
+      results.push({ name, status: "inconclusive", note: err.message, ms: Date.now() - started });
+      out(`NOT TESTED  ${name}`);
+      out(`      ${err.message}`);
+      if (process.env.GITHUB_ACTIONS === "true") {
+        out(`::warning title=Smoke test: ${name}::not tested this run: ${err.message}`);
+      }
+      return true;
+    }
+    results.push({ name, status: "fail", note: describe(err), ms: Date.now() - started });
     out(`FAIL  ${name}`);
     out(`      ${describe(err)}`);
     return false;
   }
+}
+
+// Judges the cancel check from what happened, so the rule is one place that can be tested without a network.
+//   settledBeforeAbort  the request had already finished (answer or error) when the abort was due: it was not in flight
+//   outcome             "resolved" | "rejected", after the abort was sent
+// Only a request that was demonstrably in flight when it was cancelled can fail the check.
+export function judgeCancel({ settledBeforeAbort, outcome, err, tookMs, limitMs = 5_000 }) {
+  if (settledBeforeAbort) {
+    return { status: "inconclusive", note: "the request finished before it could be cancelled, so cancelling was not tested this run" };
+  }
+  if (outcome === "resolved") {
+    return { status: "inconclusive", note: "the answer arrived just as the cancel was sent, so cancelling was not tested this run" };
+  }
+  if (!err || err.name !== "AbortError") {
+    return { status: "fail", note: `the request was in flight when it was cancelled, but it ended with ${err ? describe(err) : "no error"} instead of AbortError` };
+  }
+  if (tookMs >= limitMs) return { status: "fail", note: `cancelling took ${tookMs} ms to take effect` };
+  return { status: "pass", note: `stopped after ${tookMs} ms` };
 }
 
 function expect(condition, message) {
@@ -221,32 +260,35 @@ async function main() {
   await check("a request cancelled with an AbortSignal stops promptly", async () => {
     spendOne("abort");
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), CANCEL_AFTER_MS);
-    const started = Date.now();
-    try {
-      await client.generate(PROMPT, { ...TINY, signal: ac.signal });
-    } catch (err) {
-      const took = Date.now() - started;
-      expect(err && err.name === "AbortError", `expected AbortError, got ${describe(err)}`);
-      expect(took < 5_000, `the abort took ${took} ms to take effect`);
-      return `stopped after ${took} ms`;
-    } finally {
-      clearTimeout(timer);
-    }
-    throw new Error(`the request finished within ${CANCEL_AFTER_MS} ms, before it could be cancelled, so cancelling was not tested`);
+    let settled = false, outcome = null, error = null;
+    const request = client.generate(PROMPT, { ...TINY, signal: ac.signal }).then(
+      () => { settled = true; outcome = "resolved"; },
+      (err) => { settled = true; outcome = "rejected"; error = err; });
+    await new Promise((resolve) => setTimeout(resolve, CANCEL_AFTER_MS));
+    // In flight means: still pending when the cancel is sent. Anything else is recorded, not guessed at.
+    const settledBeforeAbort = settled;
+    const cancelledAt = Date.now();
+    if (!settledBeforeAbort) ac.abort();
+    await request;
+    const verdict = judgeCancel({ settledBeforeAbort, outcome, err: error, tookMs: Date.now() - cancelledAt });
+    if (verdict.status === "fail") throw new Error(verdict.note);
+    if (verdict.status === "inconclusive") throw new Inconclusive(verdict.note);
+    return verdict.note;
   });
 
-  return finish(results.every((r) => r.ok) ? 0 : 1);
+  return finish(results.some((r) => r.status === "fail") ? 1 : 0);
 }
 
 function finish(code) {
-  const passed = results.filter((r) => r.ok).length;
-  out(`\n${passed} of ${results.length} checks passed; ${paidCalls} billed call(s) made.`);
+  const passed = results.filter((r) => r.status === "pass").length;
+  const untested = results.filter((r) => r.status === "inconclusive").length;
+  out(`\n${passed} of ${results.length} checks passed${untested ? `, ${untested} not tested this run` : ""}; ${paidCalls} billed call(s) made.`);
   if (process.env.GITHUB_STEP_SUMMARY) {
-    const rows = results.map((r) => `| ${r.ok ? "pass" : "FAIL"} | ${r.name} | ${redact(r.note).replace(/\|/g, "/")} |`);
+    const label = { pass: "pass", fail: "FAIL", inconclusive: "not tested" };
+    const rows = results.map((r) => `| ${label[r.status]} | ${r.name} | ${redact(r.note).replace(/\|/g, "/")} |`);
     appendFileSync(process.env.GITHUB_STEP_SUMMARY,
       `### @aivana/sdk production smoke test\n\n| | check | detail |\n|---|---|---|\n${rows.join("\n")}\n\n` +
-      `${passed} of ${results.length} passed; ${paidCalls} billed call(s).\n`);
+      `${passed} of ${results.length} passed${untested ? `, ${untested} not tested this run` : ""}; ${paidCalls} billed call(s).\n`);
   }
   return code;
 }

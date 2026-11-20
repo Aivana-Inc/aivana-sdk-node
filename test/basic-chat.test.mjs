@@ -94,12 +94,18 @@ test("starter: invalid requests never reach the SDK", async (t) => {
 
 test("starter: fixed static routes never serve credentials or server files", async (t) => {
   const app = await fixture(t, (_entry, res) => answer(res));
-  for (const path of ["/", "/app.js", "/styles.css", "/conversation.mjs"]) {
+  for (const path of ["/", "/app.js", "/styles.css", "/assets/aivana-logo.avif", "/assets/aivana-sparkle.avif", "/conversation.mjs"]) {
     const response = await fetch(`${app.origin}${path}`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
     assert.match(response.headers.get("content-security-policy"), /script-src 'self'/);
-    assert.ok(!(await response.text()).includes(KEY));
+    if (path.endsWith(".avif")) {
+      assert.equal(response.headers.get("content-type"), "image/avif");
+      assert.match(response.headers.get("content-security-policy"), /img-src 'self'/);
+      assert.ok((await response.arrayBuffer()).byteLength > 0);
+    } else {
+      assert.ok(!(await response.text()).includes(KEY));
+    }
     assert.equal(response.headers.get("set-cookie"), null);
   }
   for (const path of ["/.env", "/.env.example", "/server.mjs", "/config.mjs", "/package.json", "/node_modules/@aivana/sdk/src/index.js", "/%2eenv"]) {
@@ -226,10 +232,12 @@ test("starter: standalone startup loads a local env file and uses the installed 
   await new Promise((resolve) => reservation.close(resolve));
   const directory = await mkdtemp(join(tmpdir(), "aivana-basic-chat-"));
   const envPath = join(directory, ".env");
-  t.after(async () => { await unlink(envPath); await rmdir(directory); });
-  await writeFile(envPath, `AIVANA_API_KEY=${KEY}\nAIVANA_API_BASE=${api.apiBase}\nPORT=${port}\n`);
+  const blueprintPath = join(directory, "business definition.json");
+  await writeFile(blueprintPath, JSON.stringify(exportedBlueprint));
+  t.after(async () => { await unlink(envPath); await unlink(blueprintPath); await rmdir(directory); });
+  await writeFile(envPath, `AIVANA_API_KEY=${KEY}\nAIVANA_API_BASE=${api.apiBase}\nPORT=${port}\nAIVANA_BLUEPRINT_FILE="${blueprintPath}"\n`);
   const env = { ...process.env };
-  delete env.AIVANA_API_KEY; delete env.AIVANA_API_BASE; delete env.PORT;
+  delete env.AIVANA_API_KEY; delete env.AIVANA_API_BASE; delete env.PORT; delete env.AIVANA_BLUEPRINT_FILE;
   const child = spawn(process.execPath, [`--env-file=${envPath}`, "server.mjs"], { cwd: EXAMPLE, env, stdio: ["ignore", "pipe", "pipe"] });
   const exited = once(child, "exit");
   t.after(async () => { if (child.exitCode === null) child.kill(); await exited; });
@@ -245,6 +253,9 @@ test("starter: standalone startup loads a local env file and uses the installed 
   const response = await fetch(`${origin}/api/chat`, { method: "POST", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ message: "hello" }) });
   assert.equal(response.status, 200);
   assert.equal(api.seen[0].headers["x-api-key"], KEY);
+  assert.equal(api.seen[0].body.system, "Be clear");
+  assert.equal(api.seen[0].body.max_tokens, 2048);
+  assert.ok(output.includes("Exported blueprint loaded locally"));
   assert.ok(!output.includes(KEY));
   assert.equal(errors, "");
   const installed = JSON.parse(await readFile(join(EXAMPLE, "node_modules/@aivana/sdk/package.json"), "utf8"));
@@ -253,4 +264,63 @@ test("starter: standalone startup loads a local env file and uses the installed 
   assert.equal(lock.packages["node_modules/@aivana/sdk"].version, "0.7.1");
   assert.match(lock.packages["node_modules/@aivana/sdk"].resolved, /^https:\/\/registry\.npmjs\.org\//);
   assert.equal(lock.packages["node_modules/@aivana/sdk"].link, undefined, "must install the released SDK, not a local checkout link");
+});
+
+const exportedBlueprint = JSON.parse(await readFile(new URL('./fixtures/basic-chat/agent-kit-definition.json', import.meta.url), 'utf8'));
+const withBlueprint = (configuration = {}, history = 'session') => ({ ...structuredClone(exportedBlueprint),
+  configuration: { ...structuredClone(exportedBlueprint.configuration), ...configuration }, conversation: { history } });
+
+test('starter: an actual Agent Kit export reaches the real SDK wire unchanged', async t => {
+  const app = await fixture(t, (_entry, res) => answer(res), { blueprint: exportedBlueprint });
+  assert.equal((await app.post({ message: 'Hello' })).status, 200);
+  assert.deepEqual(app.seen[0].body, {
+    mode: 'aivana_mmi', system: 'Be clear', effort: 'auto', web_search: false,
+    temperature: 0.7, max_tokens: 2048, response_format: { type: 'text' },
+    messages: [{ role: 'user', content: 'Hello' }],
+  });
+});
+
+test('starter: blueprint zeroes, null omissions and stop sequences survive the SDK mapping', async t => {
+  const app = await fixture(t, (_entry, res) => answer(res), { blueprint: withBlueprint({
+    system: 'Private instructions', effort: 'high', web_search: true,
+    temperature: null, top_p: 0, max_tokens: null, stop_sequences: [' END ', 'STOP'],
+  }) });
+  await app.post({ message: 'Hello' });
+  const body = app.seen[0].body;
+  assert.equal(body.system, 'Private instructions'); assert.equal(body.effort, 'high');
+  assert.equal(body.web_search, true); assert.equal(body.top_p, 0);
+  assert.deepEqual(body.stop_sequences, [' END ', 'STOP']);
+  for (const key of ['temperature', 'max_tokens', 'purpose', 'blueprint', 'knowledge']) assert.ok(!Object.hasOwn(body, key), key);
+  const zero = await fixture(t, (_entry, res) => answer(res), { blueprint: withBlueprint({ temperature: 0, top_p: null, max_tokens: 1 }) });
+  await zero.post({ message: 'Hello' });
+  assert.equal(zero.seen[0].body.temperature, 0); assert.equal(zero.seen[0].body.max_tokens, 1);
+  assert.ok(!Object.hasOwn(zero.seen[0].body, 'top_p'));
+});
+
+test('starter: history none blocks prior messages AND continuation state, while session preserves both', async t => {
+  const history = [{ role: 'user', content: 'Private earlier turn' }, { role: 'assistant', content: 'Earlier answer' }];
+  for (const mode of ['none', 'session']) {
+    const app = await fixture(t, (_entry, res) => answer(res, { pending_action: 'next' }), { blueprint: withBlueprint({}, mode) });
+    const response = await app.post({ message: 'Current', history, context: { previousIntent: 'old', pendingAction: 'old action' } });
+    assert.equal(response.status, 200);
+    assert.deepEqual(app.seen[0].body.messages, [...(mode === 'session' ? history : []), { role: 'user', content: 'Current' }]);
+    assert.equal(app.seen[0].body.previous_intent, mode === 'session' ? 'old' : undefined);
+    assert.equal(app.seen[0].body.pending_action, mode === 'session' ? 'old action' : undefined);
+    assert.deepEqual((await response.json()).context, mode === 'session' ? { previousIntent: 'analysis', pendingAction: 'next' } : {});
+  }
+});
+
+test('starter: blueprint public flags reveal no instructions; browsers cannot override settings', async t => {
+  const app = await fixture(t, (_entry, res) => answer(res), { blueprint: withBlueprint({ system: 'PRIVATE_INSTRUCTIONS' }, 'none') });
+  const response = await fetch(`${app.origin}/api/config`);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await response.json(), { blueprintLoaded: true, history: 'none', webSearch: false });
+  for (const path of ['/blueprint-definition.json', '/blueprint.mjs', '/blueprints/landscaping.example.json', '/.env']) {
+    assert.equal((await fetch(`${app.origin}${path}`)).status, 404);
+  }
+  for (const key of ['system', 'blueprint', 'configuration', 'webSearch', 'historyMode']) {
+    assert.equal((await app.post({ message: 'Hello', [key]: 'override' })).status, 400);
+  }
+  assert.equal(app.seen.length, 0);
+  assert.throws(() => createChatServer({ client: { generate() { assert.fail('must not generate'); } }, blueprint: withBlueprint({ effort: 'typo' }) }), /Effort/);
 });

@@ -33,7 +33,7 @@ if (!apiKey) {
     console.log("Two-turn live app check passed. No conversation content or credentials printed.");
   } catch (error) {
     // The app exposes only fixed public error codes. Never print SDK errors or credentials.
-    console.error(`Live check failed: ${/^[a-z_]+$/.test(error.message) ? error.message : "connection_or_setup_error"}. No automatic retry made.`);
+    console.error(`Live check failed: ${/^[a-z_]+$/.test(error.message) ? error.message : "connection_or_setup_error"}. A request Aivana may have accepted was not sent again.`);
     process.exitCode = 1;
   } finally {
     if (server) {

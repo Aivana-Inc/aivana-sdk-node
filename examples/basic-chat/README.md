@@ -216,8 +216,11 @@ inserted as HTML. SDK exceptions and upstream envelopes are not forwarded to the
   silently truncated. This is not a spending cap: repeated requests and repeated history consume
   account credit. The server allows at most two concurrent requests.
 - Requests have a two-minute deadline. Stop, leaving the page and server shutdown
-  forward cancellation. An accepted request may still use credit. No automatic
-  generation retry is made, including after uncertain network failures.
+  forward cancellation. An accepted request may still use credit. The SDK waits and
+  asks again only when Aivana refuses a request for a per-minute rate limit (at most
+  twice, before any work or billing). A request Aivana may have accepted is never sent
+  again automatically, including after a timeout, an interrupted stream or an uncertain
+  network failure.
 - The app serves a fixed list of public files, binds only to `127.0.0.1`, checks Host
   and Origin, and accepts only JSON chat requests. It never serves `.env`, server
   source, the installed SDK, or arbitrary paths. No prompts, answers or keys are logged.

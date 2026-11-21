@@ -82,7 +82,7 @@ function publicFailure(error, timedOut) {
     422: [400, "invalid_request", "Aivana could not accept this request. Try a shorter message or start a new chat."],
     429: [429, "rate_limited", "Too many requests. Wait a moment before trying again."],
   };
-  return failures[error?.status] ?? [502, "unavailable", "Aivana could not complete the request. Check your connection and API environment. No automatic retry was made."];
+  return failures[error?.status] ?? [502, "unavailable", "Aivana could not complete the request. Check your connection and API environment. If Aivana accepted the request, it was not sent again automatically."];
 }
 
 /** Stateless chat handler; inject an SDK client rather than sharing one SDK chat() across browsers. */
@@ -153,7 +153,7 @@ export function createChatServer({ client, blueprint = null, timeoutMs = 120_000
           if (!finished || !answer.trim()) throw new Error("Incomplete streamed answer");
           sendEvent("done", { context: nextContext });
         } catch {
-          sendEvent("error", { message: "The response was interrupted. It may have used credit; no automatic retry was made." });
+          sendEvent("error", { message: "The response was interrupted. It may have used credit, and it was not sent again automatically." });
         } finally { res.end(); }
         return;
       }

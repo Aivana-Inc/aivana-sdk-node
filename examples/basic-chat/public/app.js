@@ -132,7 +132,7 @@ form.addEventListener("submit", async (event) => {
     render();
   } catch (failure) {
     if (controller.signal.aborted) return;
-    error.textContent = failure instanceof TypeError ? "The connection was interrupted. Aivana may have accepted the request. No automatic retry was made." : failure.message;
+    error.textContent = failure instanceof TypeError ? "The connection was interrupted. Aivana may have accepted the request, and it was not sent again automatically." : failure.message;
     error.hidden = false;
     status.textContent = "";
     render(); // A failed turn never enters the next request's history. The draft stays editable.

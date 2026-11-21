@@ -15,6 +15,9 @@ let context = {};
 let active;
 let ready = false;
 let historyMode = "session";
+let blueprintLoaded = false;
+const controls = document.querySelector("#chat-settings");
+const streaming = document.querySelector("#streaming");
 
 const themeButton = document.querySelector("#theme");
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -43,12 +46,12 @@ function bubble(role, content) {
   return article;
 }
 
-function render(pending) {
+function render(pending, partial = "") {
   const hasMessages = Boolean(pending || history.length);
   chat.classList.toggle("has-messages", hasMessages);
   suggestions.hidden = hasMessages;
   transcript.replaceChildren(...history.map((item) => bubble(item.role, item.content)));
-  if (pending) transcript.append(bubble("user", pending));
+  if (pending) { transcript.append(bubble("user", pending)); if (partial) transcript.append(bubble("assistant", partial)); }
   else if (!history.length) transcript.append(empty);
   transcript.scrollTop = transcript.scrollHeight;
 }
@@ -69,6 +72,7 @@ form.addEventListener("submit", async (event) => {
   if (!message || message.length > LIMITS.messageChars) return;
   const displayHistory = recentHistory(history, message);
   const sentHistory = historyMode === "session" ? displayHistory : [];
+  const settings = blueprintLoaded ? {} : { effort: document.querySelector("#effort").value, webSearch: document.querySelector("#web-search").checked, maxTokens: Number(document.querySelector("#max-tokens").value) };
   const controller = new AbortController();
   active = controller;
   error.hidden = true;
@@ -76,16 +80,52 @@ form.addEventListener("submit", async (event) => {
   status.textContent = "Aivana is working…";
   render(message);
   try {
-    const response = await fetch("/api/chat", {
+    const useStream = streaming.checked;
+    const response = await fetch(useStream ? "/api/chat/stream" : "/api/chat", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, history: sentHistory, context: historyMode === "session" ? context : {} }), signal: controller.signal,
+      body: JSON.stringify({ message, history: sentHistory, context: historyMode === "session" ? context : {}, settings }), signal: controller.signal,
     });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error?.message || "The request could not be completed.");
+    if (!response.ok) {
+      const result = await response.json();
+      throw new Error(result.error?.message || "The request could not be completed.");
+    }
+    let answer = "", nextContext = {};
+    if (useStream) {
+      if (!response.body) throw new Error("Streaming is unavailable.");
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "", complete = false;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newline;
+        while ((newline = buffer.indexOf("\\n")) !== -1) {
+          const line = buffer.slice(0, newline);
+          buffer = buffer.slice(newline + 1);
+          if (!line.trim()) continue;
+          const event = JSON.parse(line);
+          if (event.event === "delta") {
+            answer += event.data.text;
+            render(message, answer);
+          } else if (event.event === "done") {
+            complete = true;
+            nextContext = event.data.context ?? {};
+          } else if (event.event === "error") {
+            throw new Error(event.data.message || "Streaming failed.");
+          }
+        }
+      }
+      if (!complete || !answer.trim()) throw new Error("The response ended before completion.");
+    } else {
+      const result = await response.json();
+      if (typeof result.answer !== "string") throw new Error("The app received an unexpected response.");
+      answer = result.answer;
+      nextContext = result.context ?? {};
+    }
     if (controller.signal.aborted) return;
-    if (typeof result.answer !== "string") throw new Error("The app received an unexpected response.");
-    history = recentHistory([...displayHistory, { role: "user", content: message }, { role: "assistant", content: result.answer }]);
-    context = result.context ?? {};
+    history = recentHistory([...displayHistory, { role: "user", content: message }, { role: "assistant", content: answer }]);
+    context = nextContext;
     input.value = "";
     resizeInput();
     status.textContent = "";
@@ -152,6 +192,8 @@ try {
     throw new Error("Invalid settings response");
   }
   historyMode = settings.history;
+  blueprintLoaded = settings.blueprintLoaded;
+  controls.disabled = blueprintLoaded;
   const note = document.querySelector("#configuration-note");
   if (settings.blueprintLoaded) {
     note.hidden = false;

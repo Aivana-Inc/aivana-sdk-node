@@ -258,10 +258,14 @@ test("starter: standalone startup loads a local env file and uses the installed 
   assert.ok(output.includes("Exported blueprint loaded locally"));
   assert.ok(!output.includes(KEY));
   assert.equal(errors, "");
+  // The starter pins ONE exact released version in package.json; the lockfile and the installed copy must agree with it,
+  // so re-pinning after a release is a single edit (npm install @aivana/sdk@X --save-exact) and the three cannot drift.
+  const pinned = JSON.parse(await readFile(join(EXAMPLE, "package.json"), "utf8")).dependencies["@aivana/sdk"];
+  assert.match(pinned, /^\d+\.\d+\.\d+$/, "the starter must pin an exact version, not a range");
   const installed = JSON.parse(await readFile(join(EXAMPLE, "node_modules/@aivana/sdk/package.json"), "utf8"));
-  assert.equal(installed.version, "0.7.1");
+  assert.equal(installed.version, pinned);
   const lock = JSON.parse(await readFile(join(EXAMPLE, "package-lock.json"), "utf8"));
-  assert.equal(lock.packages["node_modules/@aivana/sdk"].version, "0.7.1");
+  assert.equal(lock.packages["node_modules/@aivana/sdk"].version, pinned);
   assert.match(lock.packages["node_modules/@aivana/sdk"].resolved, /^https:\/\/registry\.npmjs\.org\//);
   assert.equal(lock.packages["node_modules/@aivana/sdk"].link, undefined, "must install the released SDK, not a local checkout link");
 });

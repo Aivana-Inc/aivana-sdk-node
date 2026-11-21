@@ -13,6 +13,6 @@
     "doctor": "node --env-file=.env doctor.mjs"
   },
   "dependencies": {
-    "@aivana/sdk": "0.7.1"
+    "@aivana/sdk": "0.8.0"
   }
 }

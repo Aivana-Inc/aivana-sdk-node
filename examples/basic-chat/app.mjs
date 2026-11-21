@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { compileBlueprint } from "./blueprint.mjs";
+import { parseBlueprintName } from "./config.mjs";
 import { LIMITS } from "./public/conversation.mjs";
 
 const ASSETS = new Map([
@@ -102,13 +103,15 @@ function publicFailure(error, timedOut) {
 }
 
 /** Stateless chat handler; inject an SDK client rather than sharing one SDK chat() across browsers. */
-export function createChatServer({ client, blueprint = null, timeoutMs = 120_000 } = {}) {
+export function createChatServer({ client, blueprint = null, blueprintName, timeoutMs = 120_000 } = {}) {
   if (typeof client?.generate !== "function") throw new Error("An Aivana SDK client is required.");
   const profile = blueprint === null ? { options: { maxTokens: 800, webSearch: false }, history: "session" } : compileBlueprint(blueprint);
   // A loaded Blueprint's public description and its settings are shown read-only; its instructions are never sent to the browser.
+  // The name is the local AIVANA_BLUEPRINT_NAME setting (the export has none) and means nothing without a Blueprint.
+  const name = blueprint === null ? undefined : parseBlueprintName(blueprintName);
   const publicConfig = {
     blueprintLoaded: blueprint !== null, history: profile.history, webSearch: profile.options.webSearch,
-    ...(blueprint === null ? {} : { blueprint: { purpose: profile.purpose, effort: profile.options.effort, maxTokens: profile.options.maxTokens ?? null } }),
+    ...(blueprint === null ? {} : { blueprint: { ...(name ? { name } : {}), purpose: profile.purpose, effort: profile.options.effort, maxTokens: profile.options.maxTokens ?? null } }),
   };
   const activeRequests = new Set();
   const server = createServer(async (req, res) => {

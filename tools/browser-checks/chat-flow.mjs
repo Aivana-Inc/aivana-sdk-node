@@ -43,7 +43,8 @@ const LONG = Array.from({ length: 70 }, (_, i) => `Paragraph ${i + 1}: streaming
   const bpDef = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
   bpDef.purpose = 'Answers customer questions about our landscaping services.'; bpDef.configuration.effort = 'high'; bpDef.configuration.max_tokens = 1200; bpDef.configuration.web_search = true;
   const plain = createChatServer({ client }); const bp = createChatServer({ client, blueprint: bpDef });
-  await Promise.all([plain, bp].map((s) => new Promise((r) => s.listen(0, '127.0.0.1', r))));
+  const bpNamed = createChatServer({ client, blueprint: bpDef, blueprintName: 'Juniper Landscaping Assistant' }); // the local AIVANA_BLUEPRINT_NAME setting
+  await Promise.all([plain, bp, bpNamed].map((s) => new Promise((r) => s.listen(0, '127.0.0.1', r))));
   const url = (s) => `http://127.0.0.1:${s.address().port}/`;
   const browser = await chromium.launch();
   const ready = (page) => page.waitForFunction(() => !document.querySelector('#message').disabled);
@@ -184,7 +185,17 @@ const LONG = Array.from({ length: 70 }, (_, i) => `Paragraph ${i + 1}: streaming
     if (vp === 'desktop') { await send(p3, 'hi'); await p3.waitForSelector('.message-actions'); const bo = calls.at(-1).o; check('Blueprint options reach the SDK unchanged', bo.effort === 'high' && bo.maxTokens === 1200 && bo.webSearch === true && typeof bo.system === 'string'); }
     await c3.close();
   }
-  await browser.close(); plain.closeAllConnections(); bp.closeAllConnections(); plain.close(); bp.close();
+  // ---- H2. the local Blueprint name
+  { const c4 = await browser.newContext({ viewport: { width: 1280, height: 820 } }); const p4 = await c4.newPage();
+    await p4.goto(url(bpNamed)); await ready(p4);
+    const n = await p4.evaluate(() => ({ title: document.querySelector('#empty-title').textContent, tab: document.title, kicker: document.querySelector('#empty-kicker-text').textContent, purpose: document.querySelector('#empty-text').textContent, tag: document.querySelector('#empty-title').tagName }));
+    check('named Blueprint: the name is the welcome title and the browser tab title; purpose and origin still shown', n.title === 'Juniper Landscaping Assistant' && n.tab === 'Juniper Landscaping Assistant · Aivana' && n.kicker === 'Loaded from Agent Kit' && n.purpose === 'Answers customer questions about our landscaping services.', JSON.stringify(n));
+    await p4.screenshot({ path: `${OUT}/H2-blueprint-named.png` });
+    await p4.goto(url(bp)); await ready(p4);
+    const u = await p4.evaluate(() => ({ title: document.querySelector('#empty-title').textContent, tab: document.title }));
+    check('unnamed Blueprint: the welcome keeps its fallback title and the tab keeps the starter title', u.title === 'Chat with your Blueprint.' && u.tab === 'Basic AI Chat · Aivana', JSON.stringify(u));
+    await c4.close(); }
+  await browser.close(); plain.closeAllConnections(); bp.closeAllConnections(); bpNamed.closeAllConnections(); plain.close(); bp.close(); bpNamed.close();
   const failed = results.filter((r) => !r).length;
   console.log(`\n${results.length - failed}/${results.length} checks passed`);
   process.exit(failed ? 1 : 0);

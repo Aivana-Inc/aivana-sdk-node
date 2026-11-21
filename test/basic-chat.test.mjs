@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Aivana from "../src/index.js";
 import { createChatServer } from "../examples/basic-chat/app.mjs";
-import { readConfiguration } from "../examples/basic-chat/config.mjs";
+import { readConfiguration, parseBlueprintName, BLUEPRINT_NAME_MAX } from "../examples/basic-chat/config.mjs";
 import { LIMITS, recentHistory } from "../examples/basic-chat/public/conversation.mjs";
 
 const KEY = "synthetic_test_key_never_for_browser";
@@ -222,6 +222,7 @@ test("starter: configuration refuses unsafe URLs, placeholder keys and invalid p
   for (const PORT of ["0", "1.2", "65536", "oops"]) assert.throws(() => readConfiguration({ AIVANA_API_KEY: KEY, PORT }), /PORT/);
   assert.equal(readConfiguration({ AIVANA_API_KEY: KEY, AIVANA_API_BASE: "https://api.aivana.ai/v1/" }).apiBase, "https://api.aivana.ai");
   assert.equal(readConfiguration({ AIVANA_API_KEY: KEY }).apiBase, undefined, "use the installed SDK's production default");
+  assert.equal(readConfiguration({ AIVANA_API_KEY: KEY }).blueprintName, undefined, "no name unless one is set");
 });
 
 test("starter: standalone startup loads a local env file and uses the installed released SDK", { skip: !supportsEnvFile, timeout: 15_000 }, async (t) => {
@@ -235,9 +236,9 @@ test("starter: standalone startup loads a local env file and uses the installed 
   const blueprintPath = join(directory, "business definition.json");
   await writeFile(blueprintPath, JSON.stringify(exportedBlueprint));
   t.after(async () => { await unlink(envPath); await unlink(blueprintPath); await rmdir(directory); });
-  await writeFile(envPath, `AIVANA_API_KEY=${KEY}\nAIVANA_API_BASE=${api.apiBase}\nPORT=${port}\nAIVANA_BLUEPRINT_FILE="${blueprintPath}"\n`);
+  await writeFile(envPath, `AIVANA_API_KEY=${KEY}\nAIVANA_API_BASE=${api.apiBase}\nPORT=${port}\nAIVANA_BLUEPRINT_FILE="${blueprintPath}"\nAIVANA_BLUEPRINT_NAME=Juniper Assistant\n`);
   const env = { ...process.env };
-  delete env.AIVANA_API_KEY; delete env.AIVANA_API_BASE; delete env.PORT; delete env.AIVANA_BLUEPRINT_FILE;
+  delete env.AIVANA_API_KEY; delete env.AIVANA_API_BASE; delete env.PORT; delete env.AIVANA_BLUEPRINT_FILE; delete env.AIVANA_BLUEPRINT_NAME;
   const child = spawn(process.execPath, [`--env-file=${envPath}`, "server.mjs"], { cwd: EXAMPLE, env, stdio: ["ignore", "pipe", "pipe"] });
   const exited = once(child, "exit");
   t.after(async () => { if (child.exitCode === null) child.kill(); await exited; });
@@ -255,7 +256,9 @@ test("starter: standalone startup loads a local env file and uses the installed 
   assert.equal(api.seen[0].headers["x-api-key"], KEY);
   assert.equal(api.seen[0].body.system, "Be clear");
   assert.equal(api.seen[0].body.max_tokens, 2048);
+  assert.equal((await (await fetch(`${origin}/api/config`)).json()).blueprint.name, "Juniper Assistant", "the .env setting reaches the page through the real server");
   assert.ok(output.includes("Exported blueprint loaded locally"));
+  assert.ok(!output.includes("is ignored"), "no warning when a Blueprint is loaded");
   assert.ok(!output.includes(KEY));
   assert.equal(errors, "");
   // The starter pins ONE exact released version in package.json; the lockfile and the installed copy must agree with it,
@@ -340,4 +343,32 @@ test("starter: usage and response time are forwarded only when the response carr
   assert.ok(!JSON.stringify(body).includes("credits") && !JSON.stringify(body).includes("0.000417"));
   const bad = await fixture(t, (_entry, res) => answer(res, { usage: { input_tokens: -1, output_tokens: "7", credits: 1 }, latency_ms: "fast" }));
   assert.deepEqual((await (await bad.post({ message: "Hello" })).json()).usage, {}, "anything that is not a plain count or time is dropped");
+});
+
+test("starter: the optional Blueprint name is one short plain line, or it stops startup naming the variable", () => {
+  assert.equal(parseBlueprintName(undefined), undefined);
+  assert.equal(parseBlueprintName(""), undefined);
+  assert.equal(parseBlueprintName("   "), undefined, "blank is the same as unset (an empty line in .env)");
+  assert.equal(parseBlueprintName("  Juniper Landscaping Assistant  "), "Juniper Landscaping Assistant");
+  assert.equal(parseBlueprintName("a".repeat(BLUEPRINT_NAME_MAX)).length, BLUEPRINT_NAME_MAX);
+  assert.equal(parseBlueprintName("<b>Not markup</b> & more"), "<b>Not markup</b> & more", "kept as text; the page never treats it as HTML");
+  assert.equal(parseBlueprintName("Café ☕ 日本語"), "Café ☕ 日本語");
+  const bad = ["a".repeat(BLUEPRINT_NAME_MAX + 1), "two\nlines", "tab\there", "carriage\rreturn", "nul" + String.fromCharCode(0) + "byte", "line" + String.fromCharCode(0x2028) + "separator", "bell" + String.fromCharCode(7)];
+  for (const value of bad) assert.throws(() => parseBlueprintName(value), /AIVANA_BLUEPRINT_NAME/, JSON.stringify(value));
+  assert.throws(() => readConfiguration({ AIVANA_API_KEY: KEY, AIVANA_BLUEPRINT_NAME: "two\nlines" }), /AIVANA_BLUEPRINT_NAME/);
+  assert.equal(readConfiguration({ AIVANA_API_KEY: KEY, AIVANA_BLUEPRINT_NAME: " Support Assistant " }).blueprintName, "Support Assistant");
+});
+
+test("starter: a Blueprint's name is shared with the page only with a loaded Blueprint, and its instructions never are", async (t) => {
+  const named = await fixture(t, (_entry, res) => answer(res), { blueprint: withBlueprint({ system: "PRIVATE_INSTRUCTIONS" }), blueprintName: "  Juniper Landscaping Assistant " });
+  const config = await (await fetch(`${named.origin}/api/config`)).json();
+  assert.equal(config.blueprint.name, "Juniper Landscaping Assistant");
+  assert.equal(config.blueprint.purpose, "Help users", "the purpose is still there beside the name");
+  assert.ok(!JSON.stringify(config).includes("PRIVATE_INSTRUCTIONS"));
+  const unnamed = await fixture(t, (_entry, res) => answer(res), { blueprint: withBlueprint(), blueprintName: "   " });
+  assert.ok(!("name" in (await (await fetch(`${unnamed.origin}/api/config`)).json()).blueprint), "a blank name is no name");
+  const plain = await fixture(t, (_entry, res) => answer(res), { blueprintName: "Ignored without a Blueprint" });
+  const plainConfig = await (await fetch(`${plain.origin}/api/config`)).json();
+  assert.deepEqual(plainConfig, { blueprintLoaded: false, history: "session", webSearch: false }, "no Blueprint, no name, and nothing else changed");
+  await assert.rejects(fixture(t, (_entry, res) => answer(res), { blueprint: withBlueprint(), blueprintName: "two\nlines" }), /AIVANA_BLUEPRINT_NAME/, "an invalid name fails loudly at construction");
 });

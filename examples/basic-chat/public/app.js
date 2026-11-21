@@ -498,9 +498,12 @@ function applyBlueprint(config) {
   $("#bp-effort").textContent = EFFORT_NAMES[details.effort] ?? "Set by Blueprint";
   $("#bp-length").textContent = Number.isInteger(details.maxTokens) ? `Up to ${details.maxTokens.toLocaleString("en-US")} tokens` : "Engine default";
   $("#bp-search").textContent = config.webSearch ? "Allowed" : "Off";
-  // The Blueprint export has a purpose but no name, so the welcome shows the purpose and says where it came from.
+  // The Blueprint export has a purpose but no name, so the welcome shows the purpose, says where it came from, and uses
+  // the local AIVANA_BLUEPRINT_NAME (when set) as its title.
   $("#empty-kicker-text").textContent = "Loaded from Agent Kit";
-  $("#empty-title").textContent = "Chat with your Blueprint.";
+  const name = typeof details.name === "string" ? details.name.trim() : "";
+  $("#empty-title").textContent = name || "Chat with your Blueprint.";
+  if (name) document.title = `${name} · Aivana`;
   $("#empty-text").textContent = typeof details.purpose === "string" && details.purpose ? details.purpose : "Your Agent Kit Blueprint is loaded.";
   suggestions.hidden = true; // generic starter prompts would not suit a purpose-built assistant
   describeSettings();

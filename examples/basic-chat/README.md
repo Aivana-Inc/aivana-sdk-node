@@ -67,6 +67,13 @@ An explicit missing/unreadable file or an invalid definition stops startup; it
 never silently falls back to generic chat. If the variable is unset and the
 conventional file is absent, the starter keeps its original default behavior.
 
+**Give the Blueprint a name.** An Agent Kit export carries a *purpose* but no name (a Blueprint's name is
+metadata that is deliberately kept out of the exported definition), so the welcome screen would otherwise
+say "Chat with your Blueprint." To show your own, set `AIVANA_BLUEPRINT_NAME=Juniper Landscaping Assistant` in `.env`
+and restart. It becomes the welcome title and the browser tab title. It is one plain line of up to 80
+characters, shown as text (never as markup), and ignored, with a note from `npm run doctor` and at startup,
+when no Blueprint is loaded. Nothing about the export file changes.
+
 **Try the included fictional business:** set the following in `.env`:
 
 ```dotenv
@@ -172,7 +179,7 @@ Restart after editing `.env`. Existing environment variables override that file.
 
 **Settings.** Settings is closed during normal chat. Open it to choose *Intelligence effort* (Auto, Low, Medium, High: a ceiling on reasoning, not a length or price control), *Answer length* (the maximum output tokens, not a guaranteed length), *Web search* and *Live streaming*, each with a short explanation. The choices are validated on the server and are not saved. When an Agent Kit Blueprint is loaded its effort, length and web-search values are shown **read-only** as set by the Blueprint, so the starter cannot silently override it.
 
-**Blueprint welcome.** A Blueprint export has a *purpose* but no name, so with one loaded the welcome screen shows that purpose instead of the generic introduction. (Showing a real name would need the Agent Kit export to carry one.)
+**Blueprint welcome.** A Blueprint export has a *purpose* but no name, so with one loaded the welcome screen shows that purpose instead of the generic introduction, with the title "Chat with your Blueprint." Set `AIVANA_BLUEPRINT_NAME` in `.env` to use your own title instead (see *Give the Blueprint a name* above); the export file itself is never changed.
 
 **Session details.** After a request completes, a small disclosure shows the input tokens, output tokens and response time **only if the API response included them**. It never shows cost or credits, models or internals.
 

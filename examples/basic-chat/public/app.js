@@ -100,7 +100,7 @@ form.addEventListener("submit", async (event) => {
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         let newline;
-        while ((newline = buffer.indexOf("\\n")) !== -1) {
+        while ((newline = buffer.indexOf("\n")) !== -1) {
           const line = buffer.slice(0, newline);
           buffer = buffer.slice(newline + 1);
           if (!line.trim()) continue;

@@ -33,6 +33,13 @@
           <p id="configuration-note" class="configuration-note" role="status" hidden></p>
           <p id="status" class="status" role="status"></p>
           <p id="error" class="error" role="alert" hidden></p>
+          <fieldset id="chat-settings" class="chat-settings" aria-label="Chat settings">
+            <legend>Chat settings</legend>
+            <label>Intelligence effort <select id="effort"><option value="auto">Auto</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
+            <label>Answer length <select id="max-tokens"><option value="400">Short</option><option value="800" selected>Standard</option><option value="1600">Long</option></select></label>
+            <label><input id="web-search" type="checkbox" /> Allow web search</label>
+          </fieldset>
+          <label class="streaming-option"><input id="streaming" type="checkbox" checked /> Stream responses live</label>
           <form id="composer" class="composer">
             <label class="sr-only" for="message">Message Aivana</label>
             <textarea id="message" disabled name="message" rows="1" maxlength="4000" placeholder="Ask anything..." required aria-describedby="composer-hint"></textarea>

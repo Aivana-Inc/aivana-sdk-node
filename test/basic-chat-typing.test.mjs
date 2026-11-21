@@ -89,6 +89,94 @@ test("revealing text in pieces always ends with exactly the text that arrived", 
   const full = "# Title\n\nSome **bold** text and `code`.\n\n```js\nconst a = 1;\n```\n";
   let text = "", shown = 0;
   for (let i = 0; i < full.length; i += 7) { text = full.slice(0, i + 7); shown = advance({ text, shown, dt: FRAME }); assert.ok(full.startsWith(text.slice(0, shown))); }
-  while (shown < text.length) shown = advance({ text, shown, dt: FRAME });
+  for (let guard = 0; shown < text.length && guard < 5_000; guard++) shown = advance({ text, shown, dt: FRAME }); // bounded: a bug must fail this test, not hang it
   assert.equal(text.slice(0, shown), full);
+});
+
+// ---------- unfinished inline spans ----------
+import { openSpan } from "../examples/basic-chat/public/typing.mjs";
+
+// What a reader would see flicker: the current line's prefix ends with an unfinished span.
+const endsInsideSpan = (prefix) => {
+  const line = prefix.slice(prefix.lastIndexOf("\n") + 1);
+  if ((line.match(/\*\*/g) || []).length % 2) return "bold";
+  if ((line.match(/~~/g) || []).length % 2) return "strike";
+  if ((line.replace(/``/g, "").match(/`/g) || []).length % 2) return "code";
+  if (/\[[^\]]*$/.test(line) || /\]\([^)]*$/.test(line)) return "link";
+  return null;
+};
+const reveal = (text, opts = {}) => { // reveal all of `text` at 60 fps, returning every value `shown` took
+  const seen = []; let shown = 0;
+  for (let guard = 0; shown < text.length && guard < 20_000; guard++) {
+    const next = advance({ text, shown, dt: FRAME, complete: true, ...opts });
+    assert.ok(next > shown, "once complete, every frame makes progress");
+    seen.push(next); shown = next;
+  }
+  return seen;
+};
+
+test("never shows a bold, strike, code or link span half-typed once its end has arrived", () => {
+  const samples = {
+    bold: "Intro text here. This is **a fairly long bold phrase that goes on** and then more words follow after it. ".repeat(6),
+    strike: "Some words ~~struck through phrase that is long enough~~ and the rest of the sentence continues here. ".repeat(6),
+    code: "Call `someFunction(withArguments, andMore)` to do it, then `other()` as well and keep going for a while. ".repeat(6),
+    link: "See [the documentation page for details](https://example.com/some/long/path?x=1) and then carry on reading. ".repeat(6),
+  };
+  for (const [kind, text] of Object.entries(samples)) {
+    for (const shown of reveal(text, { complete: false }).filter((n) => n < text.length)) {
+      assert.equal(endsInsideSpan(text.slice(0, shown)), null, `${kind}: ended inside a span at ${shown}: …${JSON.stringify(text.slice(Math.max(0, shown - 25), shown))}`);
+    }
+  }
+});
+
+test("holds back at the start of a span whose end has not arrived, then releases it when the end does", () => {
+  const partial = "Before the span **bold that is not fini";
+  let shown = 0;
+  for (let i = 0; i < 200; i++) shown = advance({ text: partial, shown, dt: FRAME });
+  assert.equal(shown, partial.indexOf("**"), "stopped right before the unfinished marker");
+  const withEnd = partial + "shed** and after";
+  for (let i = 0; i < 200 && shown < withEnd.length; i++) shown = advance({ text: withEnd, shown, dt: FRAME });
+  assert.equal(shown, withEnd.length, "released once the end arrived");
+});
+
+test("a stream that completes releases everything, even a span that never closed", () => {
+  const text = "A **never closed span and more words after it";
+  let shown = 0;
+  for (let i = 0; i < 200 && shown < text.length; i++) shown = advance({ text, shown, dt: FRAME, complete: true });
+  assert.equal(shown, text.length);
+});
+
+test("a stray marker cannot hide text for ever: after a bounded wait it is shown as it is", () => {
+  const text = "A **" + "word ".repeat(100); // no closer, and far more text than the hold limit
+  let shown = 0;
+  for (let i = 0; i < 2000 && shown < text.length; i++) shown = advance({ text, shown, dt: FRAME });
+  assert.equal(shown, text.length);
+});
+
+test("fenced code is shown exactly as typed: markers inside it never hold anything back", () => {
+  const text = "```js\nconst s = `unclosed;\nlet x = **y;\nconst t = [a](b\n";
+  let shown = 0;
+  for (let i = 0; i < 400 && shown < text.length; i++) shown = advance({ text, shown, dt: FRAME });
+  assert.equal(shown, text.length, "no hold inside a fence");
+  assert.equal(openSpan(text, text.length), null);
+});
+
+test("it only looks at the current line, and understands escapes, nested code and finished spans", () => {
+  assert.equal(openSpan("done **bold** and `code` and [a](b) all finished", 49), null);
+  assert.equal(openSpan("a \\*\\*not bold", 14), null, "escaped markers are text");
+  assert.equal(openSpan("`a ** b` fine", 9), null, "markers inside a code span are text");
+  assert.equal(openSpan("first **open\nsecond line", 20), null, "an unfinished span on an earlier line is not this line's");
+  const span = openSpan("see **bold and more", 12);
+  assert.deepEqual([span.start, span.end], [4, -1]);
+  const outer = openSpan("**bold with `code and more", 20);
+  assert.equal(outer.start, 0, "the outermost unfinished span wins");
+});
+
+test("deciding costs little per frame even for the largest answer the starter accepts", () => {
+  const text = "Some **bold** words, `code`, and [a link](https://example.com/x) in a paragraph.\n\n".repeat(200).slice(0, 16_000);
+  const started = performance.now();
+  let shown = 0;
+  for (let i = 0; i < 300 && shown < text.length; i++) shown = advance({ text, shown: Math.min(shown, 8_000), dt: FRAME, complete: true });
+  const perFrame = (performance.now() - started) / 300;
+  assert.ok(perFrame < 1.5, `${perFrame.toFixed(3)} ms per frame`);
 });

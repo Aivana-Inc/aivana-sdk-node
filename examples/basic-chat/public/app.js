@@ -36,7 +36,7 @@ const EFFORT_HELP = {
 let history = [];
 let context = {};
 // The request in progress, or the failed/stopped one still on screen. Never part of `history`.
-// { user, state: "thinking" | "streaming" | "interrupted" | "stopped", text, shown }
+// { user, state: "thinking" | "streaming" | "interrupted" | "stopped", text, shown, complete }
 // `text` is everything that has arrived; `shown` is how much of it the typing animation has revealed so far.
 let turn = null;
 let active; // the AbortController of the request in flight
@@ -238,22 +238,31 @@ function scheduleLive() { if (!frame) frame = requestAnimationFrame(paintLive); 
 function paintLive(timestamp) {
   frame = 0;
   if (!turn || !live || !["thinking", "streaming"].includes(turn.state)) return;
+  const received = turn.text.length;
+  const before = turn.shown;
+  const next = reduceMotion.matches ? received
+    : advance({ text: turn.text, shown: before, dt: lastTick ? timestamp - lastTick : 16, complete: turn.complete });
+  lastTick = timestamp;
   if (turn.state === "thinking") {
-    if (!turn.text.trim()) return;
+    // Keep "Thinking" until there is something to show (text may arrive that is only the start of an unfinished span).
+    if (!turn.text.trim() || next === 0) { lastTick = 0; return; }
     turn.state = "streaming"; // first text: swap "Thinking" for the answer
     live.article.classList.replace("is-thinking", "is-streaming");
     live.thinking.replaceWith(live.body);
     live.body.classList.add("reveal");
     live.thinking = null;
-    lastTick = 0;
   }
-  const received = turn.text.length;
-  turn.shown = reduceMotion.matches ? received : advance({ text: turn.text, shown: turn.shown, dt: lastTick ? timestamp - lastTick : 16 });
-  lastTick = timestamp;
-  live.body.replaceChildren(renderMarkdown(turn.text.slice(0, turn.shown), { streaming: true }));
-  appendCaret(live.body);
+  turn.shown = next;
+  if (next !== before || !live.body.firstChild) {
+    live.body.replaceChildren(renderMarkdown(turn.text.slice(0, turn.shown), { streaming: true }));
+    appendCaret(live.body);
+  }
   followLatest();
-  if (turn.shown < received) { scheduleLive(); return; } // still catching up
+  if (turn.shown < received) {
+    if (turn.shown > before) { scheduleLive(); return; } // still catching up
+    lastTick = 0; // holding back an unfinished **span**: the next piece of text (or the end of the stream) wakes this up
+    return;
+  }
   lastTick = 0;
   const waiter = revealWaiter;
   revealWaiter = null;
@@ -286,7 +295,7 @@ async function ask(message, { restore } = {}) {
   const controller = new AbortController();
   active = controller;
   error.hidden = true;
-  turn = { user: message, state: "thinking", text: "", shown: 0 };
+  turn = { user: message, state: "thinking", text: "", shown: 0, complete: false };
   busy(true);
   status.textContent = "Aivana is working…";
   renderTranscript();
@@ -326,6 +335,7 @@ async function ask(message, { restore } = {}) {
             if (turn) { turn.text = answer; scheduleLive(); }
           } else if (event.event === "done") {
             complete = true;
+            if (turn) turn.complete = true; // from here nothing is held back waiting for more text
             nextContext = event.data.context ?? {};
             usage = event.data.usage ?? {};
           } else if (event.event === "error") {

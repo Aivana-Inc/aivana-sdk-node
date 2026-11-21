@@ -193,3 +193,7 @@ main { overflow-y: auto; }
 .chat-settings:disabled { opacity: .6; }
 .chat-settings:disabled select, .chat-settings:disabled .check, .chat-settings:disabled .check input { cursor: not-allowed; }
 .settings-locked { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+/* A partial answer from a failed stream stays visible but is clearly not part of the conversation. */
+.message.incomplete > p:not(.incomplete-note) { color: var(--muted); }
+.message.incomplete { border-left: 3px solid var(--danger); padding-left: 16px; border-radius: 4px; }
+.incomplete-note { color: var(--danger); font-size: 12px; line-height: 1.6; margin: 10px 0 0; }

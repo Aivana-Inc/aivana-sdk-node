@@ -194,6 +194,7 @@ try {
   historyMode = settings.history;
   blueprintLoaded = settings.blueprintLoaded;
   controls.disabled = blueprintLoaded;
+  document.querySelector("#settings-locked").hidden = !blueprintLoaded;
   const note = document.querySelector("#configuration-note");
   if (settings.blueprintLoaded) {
     note.hidden = false;

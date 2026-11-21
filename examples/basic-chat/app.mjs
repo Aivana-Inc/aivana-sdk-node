@@ -7,6 +7,9 @@ const ASSETS = new Map([
   ["/", ["text/html; charset=utf-8", "index.html"]],
   ["/app.js", ["text/javascript; charset=utf-8", "app.js"]],
   ["/conversation.mjs", ["text/javascript; charset=utf-8", "conversation.mjs"]],
+  ["/markdown.mjs", ["text/javascript; charset=utf-8", "markdown.mjs"]],
+  ["/highlight.mjs", ["text/javascript; charset=utf-8", "highlight.mjs"]],
+  ["/render.mjs", ["text/javascript; charset=utf-8", "render.mjs"]],
   ["/assets/aivana-logo.avif", ["image/avif", "assets/aivana-logo.avif"]],
   ["/assets/aivana-sparkle.avif", ["image/avif", "assets/aivana-sparkle.avif"]],
   ["/styles.css", ["text/css; charset=utf-8", "styles.css"]],
@@ -52,6 +55,18 @@ function validate(value) {
   return { message: value.message.trim(), history: history.map(({ role, content }) => ({ role, content })), context, settings };
 }
 
+const wholeCount = (value) => (Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000_000 ? value : undefined);
+
+/** What the page may show about the latest request: token counts and time, and only what the response really carried. Never credits or cost. */
+function publicUsage(usage, latencyMs) {
+  const out = {};
+  const input = wholeCount(usage?.input_tokens), output = wholeCount(usage?.output_tokens);
+  if (input !== undefined) out.inputTokens = input;
+  if (output !== undefined) out.outputTokens = output;
+  if (typeof latencyMs === "number" && Number.isFinite(latencyMs) && latencyMs >= 0 && latencyMs <= 3_600_000) out.latencyMs = Math.round(latencyMs);
+  return out;
+}
+
 function json(res, status, body) {
   if (res.destroyed || res.writableEnded) return;
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
@@ -89,7 +104,11 @@ function publicFailure(error, timedOut) {
 export function createChatServer({ client, blueprint = null, timeoutMs = 120_000 } = {}) {
   if (typeof client?.generate !== "function") throw new Error("An Aivana SDK client is required.");
   const profile = blueprint === null ? { options: { maxTokens: 800, webSearch: false }, history: "session" } : compileBlueprint(blueprint);
-  const publicConfig = { blueprintLoaded: blueprint !== null, history: profile.history, webSearch: profile.options.webSearch };
+  // A loaded Blueprint's public description and its settings are shown read-only; its instructions are never sent to the browser.
+  const publicConfig = {
+    blueprintLoaded: blueprint !== null, history: profile.history, webSearch: profile.options.webSearch,
+    ...(blueprint === null ? {} : { blueprint: { purpose: profile.purpose, effort: profile.options.effort, maxTokens: profile.options.maxTokens ?? null } }),
+  };
   const activeRequests = new Set();
   const server = createServer(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -133,7 +152,7 @@ export function createChatServer({ client, blueprint = null, timeoutMs = 120_000
       };
       if (path === "/api/chat/stream") {
         res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "X-Accel-Buffering": "no", "Cache-Control": "no-store" });
-        let answer = "", finished = false, nextContext = {};
+        let answer = "", finished = false, nextContext = {}, usage = {};
         const sendEvent = (event, data) => { if (!res.destroyed && !res.writableEnded) res.write(JSON.stringify({ event, data }) + "\n"); };
         try {
           for await (const chunk of client.generateStream(null, requestOptions)) {
@@ -144,6 +163,7 @@ export function createChatServer({ client, blueprint = null, timeoutMs = 120_000
               sendEvent("delta", { text: chunk.data.text });
             } else if (chunk.event === "done") {
               finished = true;
+              usage = publicUsage(chunk.data?.usage, chunk.data?.latency_ms);
               if (profile.history === "session" && typeof chunk.data?.intent?.name === "string" && chunk.data.intent.name.length <= 256) nextContext.previousIntent = chunk.data.intent.name;
               if (profile.history === "session" && typeof chunk.data?.pending_action === "string" && chunk.data.pending_action.length <= 8_000) nextContext.pendingAction = chunk.data.pending_action;
             } else if (chunk.event === "error") {
@@ -151,7 +171,7 @@ export function createChatServer({ client, blueprint = null, timeoutMs = 120_000
             }
           }
           if (!finished || !answer.trim()) throw new Error("Incomplete streamed answer");
-          sendEvent("done", { context: nextContext });
+          sendEvent("done", { context: nextContext, usage });
         } catch {
           sendEvent("error", { message: "The response was interrupted. It may have used credit, and it was not sent again automatically." });
         } finally { res.end(); }
@@ -165,7 +185,7 @@ export function createChatServer({ client, blueprint = null, timeoutMs = 120_000
       const nextContext = {};
       if (profile.history === "session" && typeof result.intent?.name === "string" && result.intent.name.length <= 256) nextContext.previousIntent = result.intent.name;
       if (profile.history === "session" && typeof result.pending_action === "string" && result.pending_action.length <= 8_000) nextContext.pendingAction = result.pending_action;
-      json(res, 200, { answer: result.answer, context: nextContext });
+      json(res, 200, { answer: result.answer, context: nextContext, usage: publicUsage(result.usage, result.latency_ms) });
     } catch (error) {
       const [status, code, message] = error instanceof RequestError
         ? [error.status, error.code, error.message] : publicFailure(error, timedOut);

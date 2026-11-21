@@ -55,7 +55,7 @@ test("starter: real SDK supports the initial turn, follow-up context and indepen
     internal_debug: KEY, models_used: ["must-not-forward"], request_id: "req_fixture",
   }));
   const first = await (await app.post({ message: "First question" })).json();
-  assert.deepEqual(first, { answer: "Answer 1", context: { previousIntent: "analysis", pendingAction: "offer" } });
+  assert.deepEqual(first, { answer: "Answer 1", context: { previousIntent: "analysis", pendingAction: "offer" }, usage: {} }, "no usage is invented when the response carries none");
   const history = [{ role: "user", content: "First question" }, { role: "assistant", content: first.answer }];
   const follow = await (await app.post({ message: "Follow up", history, context: first.context })).json();
   assert.deepEqual(follow.context, { previousIntent: "analysis" }, "a resolved offer must not persist");
@@ -94,7 +94,7 @@ test("starter: invalid requests never reach the SDK", async (t) => {
 
 test("starter: fixed static routes never serve credentials or server files", async (t) => {
   const app = await fixture(t, (_entry, res) => answer(res));
-  for (const path of ["/", "/app.js", "/styles.css", "/assets/aivana-logo.avif", "/assets/aivana-sparkle.avif", "/conversation.mjs"]) {
+  for (const path of ["/", "/app.js", "/styles.css", "/assets/aivana-logo.avif", "/assets/aivana-sparkle.avif", "/conversation.mjs", "/markdown.mjs", "/highlight.mjs", "/render.mjs"]) {
     const response = await fetch(`${app.origin}${path}`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
@@ -318,7 +318,9 @@ test('starter: blueprint public flags reveal no instructions; browsers cannot ov
   const app = await fixture(t, (_entry, res) => answer(res), { blueprint: withBlueprint({ system: 'PRIVATE_INSTRUCTIONS' }, 'none') });
   const response = await fetch(`${app.origin}/api/config`);
   assert.equal(response.headers.get('cache-control'), 'no-store');
-  assert.deepEqual(await response.json(), { blueprintLoaded: true, history: 'none', webSearch: false });
+  const config = await response.json();
+  assert.deepEqual(config, { blueprintLoaded: true, history: 'none', webSearch: false, blueprint: { purpose: 'Help users', effort: 'auto', maxTokens: 2048 } });
+  assert.ok(!JSON.stringify(config).includes('PRIVATE_INSTRUCTIONS'), 'the Blueprint\'s instructions never reach the browser');
   for (const path of ['/blueprint-definition.json', '/blueprint.mjs', '/blueprints/landscaping.example.json', '/.env']) {
     assert.equal((await fetch(`${app.origin}${path}`)).status, 404);
   }
@@ -327,4 +329,15 @@ test('starter: blueprint public flags reveal no instructions; browsers cannot ov
   }
   assert.equal(app.seen.length, 0);
   assert.throws(() => createChatServer({ client: { generate() { assert.fail('must not generate'); } }, blueprint: withBlueprint({ effort: 'typo' }) }), /Effort/);
+});
+
+test("starter: usage and response time are forwarded only when the response carries them, and never credits or cost", async (t) => {
+  const app = await fixture(t, (_entry, res) => answer(res, {
+    usage: { input_tokens: 12, output_tokens: 34, cached_tokens: 5, credits: 0.000417 }, latency_ms: 1234.6,
+  }));
+  const body = await (await app.post({ message: "Hello" })).json();
+  assert.deepEqual(body.usage, { inputTokens: 12, outputTokens: 34, latencyMs: 1235 });
+  assert.ok(!JSON.stringify(body).includes("credits") && !JSON.stringify(body).includes("0.000417"));
+  const bad = await fixture(t, (_entry, res) => answer(res, { usage: { input_tokens: -1, output_tokens: "7", credits: 1 }, latency_ms: "fast" }));
+  assert.deepEqual((await (await bad.post({ message: "Hello" })).json()).usage, {}, "anything that is not a plain count or time is dropped");
 });

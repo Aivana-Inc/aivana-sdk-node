@@ -48,7 +48,8 @@ export function compileBlueprint(definition) {
   }
   if (c.stop_sequences.length) options.stopSequences = Object.freeze([...c.stop_sequences]);
   // Purpose is descriptive metadata, not an instruction. Do not add it to system or messages.
-  return Object.freeze({ options: Object.freeze(options), history: definition.conversation.history });
+  // `purpose` is public descriptive text the starter may show; the system instructions never leave the server.
+  return Object.freeze({ options: Object.freeze(options), history: definition.conversation.history, purpose: definition.purpose.trim() });
 }
 
 /** Optional conventional filename; an explicitly configured missing file always stops startup. */

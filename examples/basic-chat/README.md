@@ -155,29 +155,45 @@ Stop to stop waiting, or New chat to reset. Enter inserts a new line;
 Ctrl+Enter / Command+Enter sends. Change `PORT` if 3006 is already occupied.
 Restart after editing `.env`. Existing environment variables override that file.
 
-## Streaming and chat settings
+## What the starter shows
 
-The browser defaults to **Stream responses live**, using the SDK's `generateStream()` method. Text appears progressively. If a stream fails partway, the text that had already arrived stays on screen, marked incomplete, so nothing you watched appear is lost. It is **not** added to conversation history and is not sent with your next message; your next message or New chat clears it. Stop cancels the request and keeps the text that had already arrived on screen, marked stopped; like a failed stream it is not added to conversation history. New chat clears everything. Work already accepted by the API may still consume credit. Turn off streaming to compare the original whole-response behavior.
+**Live answers.** By default the answer streams in with the SDK's `generateStream()`. "Thinking…" shows until the first text arrives, then the answer fills in; Stop stays available the whole time and takes the place of Send. Turn streaming off in Settings to compare the whole-response behavior.
 
-Without an imported Blueprint, use the settings panel to choose intelligence effort (Auto/Low/Medium/High), output length (400/800/1600 tokens), and whether web search is allowed. These options are validated server-side and are not persisted. **When an Agent Kit Blueprint is loaded, the settings panel is locked** so the starter cannot silently override its configuration.
+**Formatted answers.** Replies are rendered as Markdown: headings, lists, tables, links, inline code and fenced code blocks with syntax colors (JavaScript/TypeScript, JSON, Python, shell, CSS, SQL, YAML and HTML; any other language is shown as plain text). Each code block has its own **Copy** button. Nothing is ever inserted as HTML (see *Security of rendered answers* below).
+
+**Actions under each answer.** **Copy** copies the answer's original Markdown, not the rendering. **Regenerate** (latest answer only) replaces that answer with a new one using your current settings. It sends a **new request that uses credit**, and says so next to the button. If the server refuses it, the earlier answer comes back.
+
+**Following the answer.** The page follows new text while it streams. Scroll up to read earlier messages and it stops following; a **Jump to latest** button appears. The message box stays in place while only the conversation scrolls.
+
+**When a response does not finish.**
+- *Interrupted* (the stream failed partway): the text that had arrived stays on screen, labelled **Interrupted**, with a **Retry** button. Retry sends the same message again as a **new request that uses credit**; it is never done automatically.
+- *Stopped* (you pressed Stop): the text that had arrived stays on screen, labelled **Stopped**.
+- Either way the partial answer is **not** added to the conversation and is not sent with your next message. Your next message or **New chat** clears it. Work the API already accepted may still use credit.
+
+**Settings.** Settings is closed during normal chat. Open it to choose *Intelligence effort* (Auto, Low, Medium, High: a ceiling on reasoning, not a length or price control), *Answer length* (the maximum output tokens, not a guaranteed length), *Web search* and *Live streaming*, each with a short explanation. The choices are validated on the server and are not saved. When an Agent Kit Blueprint is loaded its effort, length and web-search values are shown **read-only** as set by the Blueprint, so the starter cannot silently override it.
+
+**Blueprint welcome.** A Blueprint export has a *purpose* but no name, so with one loaded the welcome screen shows that purpose instead of the generic introduction. (Showing a real name would need the Agent Kit export to carry one.)
+
+**Session details.** After a request completes, a small disclosure shows the input tokens, output tokens and response time **only if the API response included them**. It never shows cost or credits, models or internals.
 
 ### First-run verification
 
 1. Run `node setup.mjs`, `npm ci`, and `npm run doctor`. Doctor checks configuration without making a paid request.
-2. Start the app with `npm start`, send a short prompt, and confirm that text appears incrementally with streaming enabled.
-3. Ask a follow-up to verify conversation context. Switch streaming off and send another prompt to verify non-streaming mode.
-4. Try effort and web-search settings only if you have sufficient credits. Stop a request and verify the interrupted response is not added to history.
-5. For automated two-turn live verification, run `node --env-file=.env verify-live.mjs` (uses account credit).
+2. Start the app with `npm start`, send a short prompt, and confirm that "Thinking…" turns into text that appears incrementally, with Stop available throughout.
+3. Ask for a table and a code block (the starter's prompts do), then use Copy on the answer and on the code block and paste to confirm they match.
+4. Ask a follow-up to verify conversation context. Switch streaming off and send another prompt to verify non-streaming mode.
+5. Try effort and web-search settings only if you have sufficient credits. Press Stop, and confirm the partial text stays, is labelled Stopped, and is not sent with your next message.
+6. For automated two-turn live verification, run `node --env-file=.env verify-live.mjs` (uses account credit).
 
 ## How it works
 
 ```text
 Browser (plain HTML, CSS and JavaScript)
-  → POST /api/chat on the local Node.js app
+  → POST /api/chat/stream (or /api/chat) on the local Node.js app
   → server imports @aivana/sdk from npm
-  → client.generate(null, { messages, previousIntent, pendingAction, ... })
+  → client.generateStream() (or generate()) with { messages, previousIntent, pendingAction, ... }
   → Aivana Intelligence API
-  → answer and continuation context returned to this browser
+  → text, continuation context and token usage returned to this browser
 ```
 
 | File | Responsibility |
@@ -186,7 +202,10 @@ Browser (plain HTML, CSS and JavaScript)
 | `config.mjs` | Validate the server-only key, API origin and local port. |
 | `app.mjs` | Validate requests; forward explicit conversation context; return a small answer envelope and fixed public errors. |
 | `blueprint.mjs` | Validate a local Agent Kit export and map its settings to SDK options. |
-| `public/app.js` | Keep successful turns in memory; send/reset/cancel; display answers as text. |
+| `public/app.js` | Keep successful turns in memory; send, stop, retry and regenerate; follow the answer; settings. |
+| `public/markdown.mjs` | Parse an answer's Markdown into plain data. No DOM, no HTML; bounded for hostile input. |
+| `public/highlight.mjs` | Lossless syntax coloring for code blocks. |
+| `public/render.mjs` | Build page elements from the parsed answer, and the Copy helper. |
 | `public/conversation.mjs` | Bound the recent conversation supplied with follow-ups. |
 | `public/index.html`, `styles.css` | Responsive browser interface, including OS light/dark theme. |
 
@@ -195,8 +214,20 @@ shared `client.chat()` object. A global chat object on a web server would mix di
 browsers' conversations. Only `user` and `assistant` history entries are accepted here;
 API keys, system instructions, endpoints and generation controls are not browser inputs.
 
-Replies are displayed as plain text, including any Markdown characters. They are never
-inserted as HTML. SDK exceptions and upstream envelopes are not forwarded to the browser.
+### Security of rendered answers
+
+An answer is untrusted text, so it is never turned into HTML. `markdown.mjs` parses it into
+plain data and `render.mjs` builds the page with `createElement` and `textContent` only: no
+`innerHTML`, no HTML parsing, no inline styles or scripts (the page's Content-Security-Policy
+forbids them anyway). Raw HTML in an answer, such as `<script>` or `<img onerror=...>`, is shown as
+literal text. Images are never loaded, so an answer cannot make your browser fetch an address.
+A link survives only if it is a well-formed `http(s)` or `mailto` address; it opens in a new tab
+with `noopener noreferrer`, and hovering shows its real destination. Parsing is bounded, so an odd or
+hostile answer cannot slow the page. Tests render hostile answers through a recording DOM and fail
+if any element or attribute outside a short allow-list appears.
+
+SDK exceptions and upstream envelopes are not forwarded to the browser. Session details carry
+only whole token counts and a response time.
 
 ## Conversation and usage boundaries
 

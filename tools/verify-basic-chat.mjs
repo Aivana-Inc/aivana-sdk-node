@@ -36,7 +36,11 @@ try {
       const origin = `http://127.0.0.1:${server.address().port}`;
       assert.equal((await fetch(origin)).status, 200);
       for (const path of ['/.env', '/blueprint-definition.json', '/blueprint.mjs']) assert.equal((await fetch(`${origin}${path}`)).status, 404);
-      assert.deepEqual(await (await fetch(`${origin}/api/config`)).json(), { blueprintLoaded: !!historyMode, history: historyMode || 'session', webSearch: false });
+      const config = await (await fetch(`${origin}/api/config`)).json();
+      // A loaded Blueprint shares its purpose and settings (shown read-only); its system instructions never leave the server.
+      assert.deepEqual(config, { blueprintLoaded: !!historyMode, history: historyMode || 'session', webSearch: sample.configuration.web_search && !!historyMode,
+        ...(historyMode ? { blueprint: { purpose: sample.purpose.trim(), effort: sample.configuration.effort, maxTokens: sample.configuration.max_tokens ?? null } } : {}) });
+      assert.ok(!JSON.stringify(config).includes(sample.configuration.system), 'the Blueprint instructions must not reach the browser');
       const response = await fetch(`${origin}/api/chat`, { method: 'POST',
         headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'Hello',
           history: [{ role: 'user', content: 'Earlier' }, { role: 'assistant', content: 'Answer' }], context: { pendingAction: 'earlier' } }) });

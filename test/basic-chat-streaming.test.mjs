@@ -117,3 +117,16 @@ test("the non-streaming route applies validated settings and refuses unsupported
   }
   assert.equal(calls.length, 1);
 });
+
+test("the streamed done event carries validated usage and no credits", async (t) => {
+  const { post } = await start(t, {
+    async generate() { throw new Error("unused"); },
+    async *generateStream() {
+      yield { event: "delta", data: { text: "ok" } };
+      yield { event: "done", data: { usage: { input_tokens: 7, output_tokens: 9, credits: 0.5 }, latency_ms: 800, models_used: ["x"] } };
+    },
+  });
+  const seen = await events(await post("/api/chat/stream", { message: "test" }));
+  assert.deepEqual(seen.at(-1).data.usage, { inputTokens: 7, outputTokens: 9, latencyMs: 800 });
+  assert.ok(!JSON.stringify(seen).includes("credits") && !JSON.stringify(seen).includes("models_used"));
+});

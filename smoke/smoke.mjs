@@ -9,7 +9,8 @@
 //   1. the installed SDK is the version the release says it is (when EXPECTED_SDK_VERSION is set)
 //   2. a made-up key is refused with an AuthError                          (free)
 //   3. the real key is accepted: quotas() answers                           (free)
-//   4. a bad request comes back as a typed InvalidRequestError with an id   (free: refused before any work)
+//   4. a bad request (temperature 5, above the API's limit of 2) comes back as a typed InvalidRequestError with an
+//      id                                                                    (free: refused before any work)
 //   5. one tiny generation                                                  (billed, call 1 of 3)
 //   6. one tiny streamed generation                                         (billed, call 2 of 3)
 //   7. one request cancelled with an AbortSignal                            (may be billed, call 3 of 3)
@@ -213,8 +214,10 @@ async function main() {
 
   await check("a bad request is a typed InvalidRequestError with a request id", async () => {
     try {
-      // refused by validation before any work: free
-      await client.generate(PROMPT, { effort: "not-a-real-effort" });
+      // Refused by the API's request validation before any work, so it is free. It must be a value the API really
+      // refuses: temperature is limited to 0..2. (An unknown `effort` is NOT refused: the API quietly treats it as
+      // "auto", which is how the first production run found that this check had assumed otherwise.)
+      await client.generate(PROMPT, { temperature: 5 });
     } catch (err) {
       expect(err instanceof InvalidRequestError, `expected InvalidRequestError, got ${describe(err)}`);
       expect(err.code === "invalid_request", `expected code invalid_request, got ${err.code}`);

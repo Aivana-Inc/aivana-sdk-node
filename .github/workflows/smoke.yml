@@ -4,10 +4,10 @@ name: Production smoke test
 #
 # It builds the package, installs the built .tgz into an empty folder (not the source tree) and runs
 # smoke/smoke.mjs there against https://api.aivana.ai: three free checks and three tiny billed calls
-# (smoke/smoke.mjs lists them and caps the billed ones). Two ways to start it:
-#
-#   - by hand: Actions > Production smoke test > Run workflow, before cutting a release or the day before an event
-#   - as the gate in publish.yml: nothing is published to npm unless this passed on the commit being released
+# (smoke/smoke.mjs lists them and caps the billed ones). This workflow is the by-hand way to run it: Actions >
+# Production smoke test > Run workflow, before cutting a release or the day before an event. The release gate in
+# publish.yml runs the same steps (the shared composite action .github/actions/production-smoke), as a job of its
+# own, because a reusable workflow does not receive this environment's secret.
 #
 # SAFETY. The job holds a real production API key, so:
 #   - it never runs for a pull request (there is no pull_request trigger, and a workflow a fork's pull request
@@ -28,7 +28,6 @@ name: Production smoke test
 
 on:
   workflow_dispatch:
-  workflow_call:
 
 permissions:
   contents: read
@@ -48,37 +47,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
+      - name: Run the production smoke test
+        uses: ./.github/actions/production-smoke
         with:
-          node-version: 24
-          package-manager-cache: false
-
-      - name: Validate the lockfile
-        run: npm ci
-
-      # What gets tested is the built package, not the source: a file missing from "files" in package.json, or a
-      # broken export, shows up here and nowhere in the in-repo tests.
-      - name: Build the package and install it into an empty folder
-        run: |
-          out="$(mktemp -d)"
-          npm pack --silent --pack-destination "$out"
-          prefix="$RUNNER_TEMP/smoke-install"
-          mkdir -p "$prefix"
-          npm install --prefix "$prefix" --no-audit --no-fund "$out"/aivana-sdk-*.tgz
-          cp smoke/smoke.mjs "$prefix/smoke.mjs"
-          echo "SMOKE_DIR=$prefix" >> "$GITHUB_ENV"
-          echo "EXPECTED_SDK_VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
-
-      # Costs nothing and calls nothing: catches a missing key or a bad address before the real run.
-      - name: Check the setup (no calls)
-        working-directory: ${{ env.SMOKE_DIR }}
-        env:
-          AIVANA_API_KEY: ${{ secrets.AIVANA_API_KEY }}
-        run: node smoke.mjs --dry-run
-
-      - name: Run the smoke test against production
-        working-directory: ${{ env.SMOKE_DIR }}
-        env:
-          AIVANA_API_KEY: ${{ secrets.AIVANA_API_KEY }}
-        run: node smoke.mjs
+          api-key: ${{ secrets.AIVANA_API_KEY }}

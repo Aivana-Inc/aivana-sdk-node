@@ -53,7 +53,10 @@ async function withStub(quirk, run) {
         const e = envelope("internal_error", "boom", 500);
         return send(e.status, e.body);
       }
-      if (quirk !== "accepts-bad-requests" && body && !["auto", "low", "medium", "high"].includes(body.effort ?? "auto")) {
+      // What the real API does (intelligence_engine/api/envelopes.py): temperature must be 0..2, so 5 is a 422 before any
+      // work; an unknown `effort` is NOT an error (it is quietly treated as "auto"), so it is accepted here too.
+      if (quirk !== "accepts-bad-requests" && body && typeof body.temperature === "number"
+          && (body.temperature > 2 || body.temperature < 0)) {
         const e = envelope("invalid_request", "The request body or query is not valid.", 422);
         return send(e.status, e.body);
       }
@@ -321,4 +324,18 @@ test("judgeCancel: in flight, cancelled, and the SDK surfaces some other error: 
 test("judgeCancel: in flight but slow to take effect is a failure, and the limit is the one given", () => {
   assert.equal(judgeCancel({ settledBeforeAbort: false, outcome: "rejected", err: ABORT, tookMs: 5_000 }).status, "fail");
   assert.equal(judgeCancel({ settledBeforeAbort: false, outcome: "rejected", err: ABORT, tookMs: 4_999 }).status, "pass");
+});
+
+test("the bad-request check uses an out-of-range temperature, which the real API refuses, never an unknown effort, which it accepts", async () => {
+  await withStub(null, async ({ base, seen }) => {
+    const r = await runScript({ AIVANA_API_KEY: GOOD_KEY, AIVANA_API_BASE: base });
+    assert.equal(r.code, 0, r.stdout);
+    const bad = seen.filter((x) => x.body && x.body.temperature === 5);
+    assert.equal(bad.length, 1);
+    assert.equal(bad[0].body.effort, undefined, "the invalid request must not rely on effort");
+    // and the stand-in agrees with the real API that an unknown effort is accepted, not refused
+    const res = await fetch(base + "/v1/generate", { method: "POST", headers: { "X-API-Key": GOOD_KEY, "Content-Type": "application/json" },
+                                                     body: JSON.stringify({ prompt: "x", effort: "not-a-real-effort" }) });
+    assert.equal(res.status, 200);
+  });
 });

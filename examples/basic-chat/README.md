@@ -67,6 +67,13 @@ An explicit missing/unreadable file or an invalid definition stops startup; it
 never silently falls back to generic chat. If the variable is unset and the
 conventional file is absent, the starter keeps its original default behavior.
 
+**Give the Blueprint a name.** An Agent Kit export carries a *purpose* but no name (a Blueprint's name is
+metadata that is deliberately kept out of the exported definition), so the welcome screen would otherwise
+say "Chat with your Blueprint." To show your own, set `AIVANA_BLUEPRINT_NAME=Juniper Landscaping Assistant` in `.env`
+and restart. It becomes the welcome title and the browser tab title. It is one plain line of up to 80
+characters, shown as text (never as markup), and ignored, with a note from `npm run doctor` and at startup,
+when no Blueprint is loaded. Nothing about the export file changes.
+
 **Try the included fictional business:** set the following in `.env`:
 
 ```dotenv
@@ -155,15 +162,45 @@ Stop to stop waiting, or New chat to reset. Enter inserts a new line;
 Ctrl+Enter / Command+Enter sends. Change `PORT` if 3006 is already occupied.
 Restart after editing `.env`. Existing environment variables override that file.
 
+## What the starter shows
+
+**Live answers.** By default the answer streams in with the SDK's `generateStream()`. "Thinking…" shows until the first text arrives, then the answer fills in; Stop stays available the whole time and takes the place of Send. The API delivers text in a few large pieces, so the page **types it out** rather than letting it jump: text that has arrived is revealed a little each frame, by words, quickly while far behind and gently when nearly caught up (about a second for a typical answer, and a slow stream is simply followed as it arrives). An unfinished **bold**, ~~strike~~, `code` or [link](address) is never shown half-typed: it appears as one unit once its end has arrived (held back at its start meanwhile, for a bounded time, never inside fenced code, and released when the stream completes), so you do not see raw markers flash. The finished answer is saved and the toolbar appears once the typing has caught up. Stop and New chat end it at once; Stop keeps everything that had arrived. People who prefer reduced motion see the text immediately, and with streaming off there is no animation because the whole answer is already here. The pacing lives in `public/typing.mjs` (`TYPING`: minimum speed and catch-up rate) if you want it slower or faster. Turn streaming off in Settings to compare the whole-response behavior.
+
+**Formatted answers.** Replies are rendered as Markdown: headings, lists, tables, links, inline code and fenced code blocks with syntax colors (JavaScript/TypeScript, JSON, Python, shell, CSS, SQL, YAML and HTML; any other language is shown as plain text). Each code block has its own **Copy** button. Nothing is ever inserted as HTML (see *Security of rendered answers* below).
+
+**Actions under each answer.** **Copy** copies the answer's original Markdown, not the rendering. **Regenerate** (latest answer only) replaces that answer with a new one using your current settings. It sends a **new request that uses credit**, and says so next to the button. If the server refuses it, the earlier answer comes back.
+
+**Following the answer.** The page follows new text while it streams. Scroll up to read earlier messages and it stops following; a **Jump to latest** button appears. The message box stays in place while only the conversation scrolls.
+
+**When a response does not finish.**
+- *Interrupted* (the stream failed partway): the text that had arrived stays on screen, labelled **Interrupted**, with a **Retry** button. Retry sends the same message again as a **new request that uses credit**; it is never done automatically.
+- *Stopped* (you pressed Stop): the text that had arrived stays on screen, labelled **Stopped**.
+- Either way the partial answer is **not** added to the conversation and is not sent with your next message. Your next message or **New chat** clears it. Work the API already accepted may still use credit.
+
+**Settings.** Settings is closed during normal chat. Open it to choose *Intelligence effort* (Auto, Low, Medium, High: a ceiling on reasoning, not a length or price control), *Answer length* (the maximum output tokens, not a guaranteed length), *Web search* and *Live streaming*, each with a short explanation. The choices are validated on the server and are not saved. When an Agent Kit Blueprint is loaded its effort, length and web-search values are shown **read-only** as set by the Blueprint, so the starter cannot silently override it.
+
+**Blueprint welcome.** A Blueprint export has a *purpose* but no name, so with one loaded the welcome screen shows that purpose instead of the generic introduction, with the title "Chat with your Blueprint." Set `AIVANA_BLUEPRINT_NAME` in `.env` to use your own title instead (see *Give the Blueprint a name* above); the export file itself is never changed.
+
+**Session details.** After a request completes, a small disclosure shows the input tokens, output tokens and response time **only if the API response included them**. It never shows cost or credits, models or internals.
+
+### First-run verification
+
+1. Run `node setup.mjs`, `npm ci`, and `npm run doctor`. Doctor checks configuration without making a paid request.
+2. Start the app with `npm start`, send a short prompt, and confirm that "Thinking…" turns into text that appears incrementally, with Stop available throughout.
+3. Ask for a table and a code block (the starter's prompts do), then use Copy on the answer and on the code block and paste to confirm they match.
+4. Ask a follow-up to verify conversation context. Switch streaming off and send another prompt to verify non-streaming mode.
+5. Try effort and web-search settings only if you have sufficient credits. Press Stop, and confirm the partial text stays, is labelled Stopped, and is not sent with your next message.
+6. For automated two-turn live verification, run `node --env-file=.env verify-live.mjs` (uses account credit).
+
 ## How it works
 
 ```text
 Browser (plain HTML, CSS and JavaScript)
-  → POST /api/chat on the local Node.js app
+  → POST /api/chat/stream (or /api/chat) on the local Node.js app
   → server imports @aivana/sdk from npm
-  → client.generate(null, { messages, previousIntent, pendingAction, ... })
+  → client.generateStream() (or generate()) with { messages, previousIntent, pendingAction, ... }
   → Aivana Intelligence API
-  → answer and continuation context returned to this browser
+  → text, continuation context and token usage returned to this browser
 ```
 
 | File | Responsibility |
@@ -172,7 +209,11 @@ Browser (plain HTML, CSS and JavaScript)
 | `config.mjs` | Validate the server-only key, API origin and local port. |
 | `app.mjs` | Validate requests; forward explicit conversation context; return a small answer envelope and fixed public errors. |
 | `blueprint.mjs` | Validate a local Agent Kit export and map its settings to SDK options. |
-| `public/app.js` | Keep successful turns in memory; send/reset/cancel; display answers as text. |
+| `public/app.js` | Keep successful turns in memory; send, stop, retry and regenerate; follow the answer; settings. |
+| `public/markdown.mjs` | Parse an answer's Markdown into plain data. No DOM, no HTML; bounded for hostile input. |
+| `public/highlight.mjs` | Lossless syntax coloring for code blocks. |
+| `public/render.mjs` | Build page elements from the parsed answer, and the Copy helper. |
+| `public/typing.mjs` | Decide how much arrived text to show each frame (the typing animation). Pure numbers; no page access. |
 | `public/conversation.mjs` | Bound the recent conversation supplied with follow-ups. |
 | `public/index.html`, `styles.css` | Responsive browser interface, including OS light/dark theme. |
 
@@ -181,8 +222,20 @@ shared `client.chat()` object. A global chat object on a web server would mix di
 browsers' conversations. Only `user` and `assistant` history entries are accepted here;
 API keys, system instructions, endpoints and generation controls are not browser inputs.
 
-Replies are displayed as plain text, including any Markdown characters. They are never
-inserted as HTML. SDK exceptions and upstream envelopes are not forwarded to the browser.
+### Security of rendered answers
+
+An answer is untrusted text, so it is never turned into HTML. `markdown.mjs` parses it into
+plain data and `render.mjs` builds the page with `createElement` and `textContent` only: no
+`innerHTML`, no HTML parsing, no inline styles or scripts (the page's Content-Security-Policy
+forbids them anyway). Raw HTML in an answer, such as `<script>` or `<img onerror=...>`, is shown as
+literal text. Images are never loaded, so an answer cannot make your browser fetch an address.
+A link survives only if it is a well-formed `http(s)` or `mailto` address; it opens in a new tab
+with `noopener noreferrer`, and hovering shows its real destination. Parsing is bounded, so an odd or
+hostile answer cannot slow the page. Tests render hostile answers through a recording DOM and fail
+if any element or attribute outside a short allow-list appears.
+
+SDK exceptions and upstream envelopes are not forwarded to the browser. Session details carry
+only whole token counts and a response time.
 
 ## Conversation and usage boundaries
 
@@ -202,8 +255,11 @@ inserted as HTML. SDK exceptions and upstream envelopes are not forwarded to the
   silently truncated. This is not a spending cap: repeated requests and repeated history consume
   account credit. The server allows at most two concurrent requests.
 - Requests have a two-minute deadline. Stop, leaving the page and server shutdown
-  forward cancellation. An accepted request may still use credit. No automatic
-  generation retry is made, including after uncertain network failures.
+  forward cancellation. An accepted request may still use credit. The SDK waits and
+  asks again only when Aivana refuses a request for a per-minute rate limit (at most
+  twice, before any work or billing). A request Aivana may have accepted is never sent
+  again automatically, including after a timeout, an interrupted stream or an uncertain
+  network failure.
 - The app serves a fixed list of public files, binds only to `127.0.0.1`, checks Host
   and Origin, and accepts only JSON chat requests. It never serves `.env`, server
   source, the installed SDK, or arbitrary paths. No prompts, answers or keys are logged.

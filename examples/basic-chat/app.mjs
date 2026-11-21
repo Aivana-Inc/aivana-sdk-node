@@ -1,12 +1,17 @@
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { compileBlueprint } from "./blueprint.mjs";
+import { parseBlueprintName } from "./config.mjs";
 import { LIMITS } from "./public/conversation.mjs";
 
 const ASSETS = new Map([
   ["/", ["text/html; charset=utf-8", "index.html"]],
   ["/app.js", ["text/javascript; charset=utf-8", "app.js"]],
   ["/conversation.mjs", ["text/javascript; charset=utf-8", "conversation.mjs"]],
+  ["/markdown.mjs", ["text/javascript; charset=utf-8", "markdown.mjs"]],
+  ["/highlight.mjs", ["text/javascript; charset=utf-8", "highlight.mjs"]],
+  ["/render.mjs", ["text/javascript; charset=utf-8", "render.mjs"]],
+  ["/typing.mjs", ["text/javascript; charset=utf-8", "typing.mjs"]],
   ["/assets/aivana-logo.avif", ["image/avif", "assets/aivana-logo.avif"]],
   ["/assets/aivana-sparkle.avif", ["image/avif", "assets/aivana-sparkle.avif"]],
   ["/styles.css", ["text/css; charset=utf-8", "styles.css"]],
@@ -22,7 +27,7 @@ function invalid(message = "Check your message and start a new chat if its histo
 
 function validate(value) {
   if (!value || typeof value !== "object" || Array.isArray(value) ||
-      Object.keys(value).some((key) => !["message", "history", "context"].includes(key)) ||
+      Object.keys(value).some((key) => !["message", "history", "context", "settings"].includes(key)) ||
       typeof value.message !== "string" || !value.message.trim() || value.message.length > LIMITS.messageChars) {
     throw invalid(`Enter a message of 1 to ${LIMITS.messageChars.toLocaleString("en-US")} characters.`);
   }
@@ -43,7 +48,25 @@ function validate(value) {
   for (const [key, max] of [["previousIntent", 256], ["pendingAction", 8_000]]) {
     if (context[key] !== undefined && (typeof context[key] !== "string" || context[key].length > max)) throw invalid();
   }
-  return { message: value.message.trim(), history: history.map(({ role, content }) => ({ role, content })), context };
+  const settings = value.settings ?? {};
+  if (!settings || typeof settings !== "object" || Array.isArray(settings) ||
+      Object.keys(settings).some(key => !["effort", "webSearch", "maxTokens"].includes(key)) ||
+      (settings.effort !== undefined && !["auto", "low", "medium", "high"].includes(settings.effort)) ||
+      (settings.webSearch !== undefined && typeof settings.webSearch !== "boolean") ||
+      (settings.maxTokens !== undefined && ![400, 800, 1600].includes(settings.maxTokens))) throw invalid("Choose supported chat settings.");
+  return { message: value.message.trim(), history: history.map(({ role, content }) => ({ role, content })), context, settings };
+}
+
+const wholeCount = (value) => (Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000_000 ? value : undefined);
+
+/** What the page may show about the latest request: token counts and time, and only what the response really carried. Never credits or cost. */
+function publicUsage(usage, latencyMs) {
+  const out = {};
+  const input = wholeCount(usage?.input_tokens), output = wholeCount(usage?.output_tokens);
+  if (input !== undefined) out.inputTokens = input;
+  if (output !== undefined) out.outputTokens = output;
+  if (typeof latencyMs === "number" && Number.isFinite(latencyMs) && latencyMs >= 0 && latencyMs <= 3_600_000) out.latencyMs = Math.round(latencyMs);
+  return out;
 }
 
 function json(res, status, body) {
@@ -76,14 +99,20 @@ function publicFailure(error, timedOut) {
     422: [400, "invalid_request", "Aivana could not accept this request. Try a shorter message or start a new chat."],
     429: [429, "rate_limited", "Too many requests. Wait a moment before trying again."],
   };
-  return failures[error?.status] ?? [502, "unavailable", "Aivana could not complete the request. Check your connection and API environment. No automatic retry was made."];
+  return failures[error?.status] ?? [502, "unavailable", "Aivana could not complete the request. Check your connection and API environment. If Aivana accepted the request, it was not sent again automatically."];
 }
 
 /** Stateless chat handler; inject an SDK client rather than sharing one SDK chat() across browsers. */
-export function createChatServer({ client, blueprint = null, timeoutMs = 120_000 } = {}) {
+export function createChatServer({ client, blueprint = null, blueprintName, timeoutMs = 120_000 } = {}) {
   if (typeof client?.generate !== "function") throw new Error("An Aivana SDK client is required.");
   const profile = blueprint === null ? { options: { maxTokens: 800, webSearch: false }, history: "session" } : compileBlueprint(blueprint);
-  const publicConfig = { blueprintLoaded: blueprint !== null, history: profile.history, webSearch: profile.options.webSearch };
+  // A loaded Blueprint's public description and its settings are shown read-only; its instructions are never sent to the browser.
+  // The name is the local AIVANA_BLUEPRINT_NAME setting (the export has none) and means nothing without a Blueprint.
+  const name = blueprint === null ? undefined : parseBlueprintName(blueprintName);
+  const publicConfig = {
+    blueprintLoaded: blueprint !== null, history: profile.history, webSearch: profile.options.webSearch,
+    ...(blueprint === null ? {} : { blueprint: { ...(name ? { name } : {}), purpose: profile.purpose, effort: profile.options.effort, maxTokens: profile.options.maxTokens ?? null } }),
+  };
   const activeRequests = new Set();
   const server = createServer(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -100,7 +129,7 @@ export function createChatServer({ client, blueprint = null, timeoutMs = 120_000
       return res.end(asset.data);
     }
     if (path === "/api/config" && req.method === "GET") return json(res, 200, publicConfig);
-    if (path !== "/api/chat") return json(res, 404, { error: { code: "not_found", message: "Not found." } });
+    if (path !== "/api/chat" && path !== "/api/chat/stream") return json(res, 404, { error: { code: "not_found", message: "Not found." } });
     if (req.method !== "POST") { res.setHeader("Allow", "POST"); return json(res, 405, { error: { code: "method_not_allowed", message: "Use POST for chat." } }); }
     if (req.headers.origin !== `http://${req.headers.host}` || req.headers["sec-fetch-site"] === "cross-site") {
       return json(res, 403, { error: { code: "forbidden", message: "Send messages from this app's local page." } });
@@ -117,13 +146,42 @@ export function createChatServer({ client, blueprint = null, timeoutMs = 120_000
     const disconnected = () => { if (!res.writableEnded) controller.abort(); };
     res.once("close", disconnected);
     try {
-      const { message, history, context } = validate(await readBody(req));
+      const { message, history, context, settings } = validate(await readBody(req));
+      if (blueprint !== null && Object.keys(settings).length) throw invalid("Imported Blueprint settings are locked. Remove chat overrides.");
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
-      const result = await client.generate(null, {
-        ...profile.options,
+      const requestOptions = {
+        ...profile.options, ...(blueprint === null ? settings : {}),
         messages: [...(profile.history === "session" ? history : []), { role: "user", content: message }],
         ...(profile.history === "session" ? context : {}), signal: controller.signal,
-      });
+      };
+      if (path === "/api/chat/stream") {
+        res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "X-Accel-Buffering": "no", "Cache-Control": "no-store" });
+        let answer = "", finished = false, nextContext = {}, usage = {};
+        const sendEvent = (event, data) => { if (!res.destroyed && !res.writableEnded) res.write(JSON.stringify({ event, data }) + "\n"); };
+        try {
+          for await (const chunk of client.generateStream(null, requestOptions)) {
+            if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+            if (chunk.event === "delta" && typeof chunk.data?.text === "string") {
+              answer += chunk.data.text;
+              if (answer.length > 16_000) throw new Error("Answer exceeded starter limit");
+              sendEvent("delta", { text: chunk.data.text });
+            } else if (chunk.event === "done") {
+              finished = true;
+              usage = publicUsage(chunk.data?.usage, chunk.data?.latency_ms);
+              if (profile.history === "session" && typeof chunk.data?.intent?.name === "string" && chunk.data.intent.name.length <= 256) nextContext.previousIntent = chunk.data.intent.name;
+              if (profile.history === "session" && typeof chunk.data?.pending_action === "string" && chunk.data.pending_action.length <= 8_000) nextContext.pendingAction = chunk.data.pending_action;
+            } else if (chunk.event === "error") {
+              throw new Error("The upstream stream reported an error");
+            }
+          }
+          if (!finished || !answer.trim()) throw new Error("Incomplete streamed answer");
+          sendEvent("done", { context: nextContext, usage });
+        } catch {
+          sendEvent("error", { message: "The response was interrupted. It may have used credit, and it was not sent again automatically." });
+        } finally { res.end(); }
+        return;
+      }
+      const result = await client.generate(null, requestOptions);
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       if (typeof result?.answer !== "string" || !result.answer.trim() || result.answer.length > 16_000) {
         throw new Error("Invalid answer");
@@ -131,7 +189,7 @@ export function createChatServer({ client, blueprint = null, timeoutMs = 120_000
       const nextContext = {};
       if (profile.history === "session" && typeof result.intent?.name === "string" && result.intent.name.length <= 256) nextContext.previousIntent = result.intent.name;
       if (profile.history === "session" && typeof result.pending_action === "string" && result.pending_action.length <= 8_000) nextContext.pendingAction = result.pending_action;
-      json(res, 200, { answer: result.answer, context: nextContext });
+      json(res, 200, { answer: result.answer, context: nextContext, usage: publicUsage(result.usage, result.latency_ms) });
     } catch (error) {
       const [status, code, message] = error instanceof RequestError
         ? [error.status, error.code, error.message] : publicFailure(error, timedOut);

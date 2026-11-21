@@ -157,7 +157,7 @@ Restart after editing `.env`. Existing environment variables override that file.
 
 ## What the starter shows
 
-**Live answers.** By default the answer streams in with the SDK's `generateStream()`. "Thinking…" shows until the first text arrives, then the answer fills in; Stop stays available the whole time and takes the place of Send. Turn streaming off in Settings to compare the whole-response behavior.
+**Live answers.** By default the answer streams in with the SDK's `generateStream()`. "Thinking…" shows until the first text arrives, then the answer fills in; Stop stays available the whole time and takes the place of Send. The API delivers text in a few large pieces, so the page **types it out** rather than letting it jump: text that has arrived is revealed a little each frame, by words, quickly while far behind and gently when nearly caught up (about a second for a typical answer, and a slow stream is simply followed as it arrives). The finished answer is saved and the toolbar appears once the typing has caught up. Stop and New chat end it at once; Stop keeps everything that had arrived. People who prefer reduced motion see the text immediately, and with streaming off there is no animation because the whole answer is already here. The pacing lives in `public/typing.mjs` (`TYPING`: minimum speed and catch-up rate) if you want it slower or faster. Turn streaming off in Settings to compare the whole-response behavior.
 
 **Formatted answers.** Replies are rendered as Markdown: headings, lists, tables, links, inline code and fenced code blocks with syntax colors (JavaScript/TypeScript, JSON, Python, shell, CSS, SQL, YAML and HTML; any other language is shown as plain text). Each code block has its own **Copy** button. Nothing is ever inserted as HTML (see *Security of rendered answers* below).
 
@@ -206,6 +206,7 @@ Browser (plain HTML, CSS and JavaScript)
 | `public/markdown.mjs` | Parse an answer's Markdown into plain data. No DOM, no HTML; bounded for hostile input. |
 | `public/highlight.mjs` | Lossless syntax coloring for code blocks. |
 | `public/render.mjs` | Build page elements from the parsed answer, and the Copy helper. |
+| `public/typing.mjs` | Decide how much arrived text to show each frame (the typing animation). Pure numbers; no page access. |
 | `public/conversation.mjs` | Bound the recent conversation supplied with follow-ups. |
 | `public/index.html`, `styles.css` | Responsive browser interface, including OS light/dark theme. |
 

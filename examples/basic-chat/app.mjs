@@ -10,6 +10,7 @@ const ASSETS = new Map([
   ["/markdown.mjs", ["text/javascript; charset=utf-8", "markdown.mjs"]],
   ["/highlight.mjs", ["text/javascript; charset=utf-8", "highlight.mjs"]],
   ["/render.mjs", ["text/javascript; charset=utf-8", "render.mjs"]],
+  ["/typing.mjs", ["text/javascript; charset=utf-8", "typing.mjs"]],
   ["/assets/aivana-logo.avif", ["image/avif", "assets/aivana-logo.avif"]],
   ["/assets/aivana-sparkle.avif", ["image/avif", "assets/aivana-sparkle.avif"]],
   ["/styles.css", ["text/css; charset=utf-8", "styles.css"]],

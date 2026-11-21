@@ -1,5 +1,6 @@
 import { LIMITS, recentHistory } from "./conversation.mjs";
 import { renderMarkdown, copyText } from "./render.mjs";
+import { advance } from "./typing.mjs";
 
 const $ = (selector) => document.querySelector(selector);
 const form = $("#composer");
@@ -35,7 +36,8 @@ const EFFORT_HELP = {
 let history = [];
 let context = {};
 // The request in progress, or the failed/stopped one still on screen. Never part of `history`.
-// { user, state: "thinking" | "streaming" | "interrupted" | "stopped", text }
+// { user, state: "thinking" | "streaming" | "interrupted" | "stopped", text, shown }
+// `text` is everything that has arrived; `shown` is how much of it the typing animation has revealed so far.
 let turn = null;
 let active; // the AbortController of the request in flight
 let ready = false;
@@ -43,6 +45,8 @@ let historyMode = "session";
 let blueprintLoaded = false;
 let live = null; // the on-screen nodes of the turn being drawn
 let frame = 0;
+let lastTick = 0; // the time of the previous animation frame
+let revealWaiter = null; // resolves when the display has caught up with the text that arrived
 let stick = true; // follow the newest text unless the person scrolls up to read
 
 // ---------- theme ----------
@@ -181,7 +185,7 @@ function turnNode() {
     live.thinking = thinkingNode();
     article.append(live.thinking);
   } else {
-    body.append(renderMarkdown(turn.text, { streaming: turn.state === "streaming" }));
+    body.append(renderMarkdown(turn.state === "streaming" ? turn.text.slice(0, turn.shown) : turn.text, { streaming: turn.state === "streaming" }));
     article.append(body);
   }
   if (turn.state === "interrupted" || turn.state === "stopped") {
@@ -228,9 +232,10 @@ function appendCaret(body) {
   host.append(caret);
 }
 
-// New text is drawn at most once per frame, however fast it arrives.
+// The typing animation: text that has arrived is revealed a little each frame, by words, quickly while far
+// behind and gently when nearly caught up (see typing.mjs). People who prefer reduced motion see it at once.
 function scheduleLive() { if (!frame) frame = requestAnimationFrame(paintLive); }
-function paintLive() {
+function paintLive(timestamp) {
   frame = 0;
   if (!turn || !live || !["thinking", "streaming"].includes(turn.state)) return;
   if (turn.state === "thinking") {
@@ -240,10 +245,32 @@ function paintLive() {
     live.thinking.replaceWith(live.body);
     live.body.classList.add("reveal");
     live.thinking = null;
+    lastTick = 0;
   }
-  live.body.replaceChildren(renderMarkdown(turn.text, { streaming: true }));
+  const received = turn.text.length;
+  turn.shown = reduceMotion.matches ? received : advance({ text: turn.text, shown: turn.shown, dt: lastTick ? timestamp - lastTick : 16 });
+  lastTick = timestamp;
+  live.body.replaceChildren(renderMarkdown(turn.text.slice(0, turn.shown), { streaming: true }));
   appendCaret(live.body);
   followLatest();
+  if (turn.shown < received) { scheduleLive(); return; } // still catching up
+  lastTick = 0;
+  const waiter = revealWaiter;
+  revealWaiter = null;
+  waiter?.();
+}
+
+// After the last piece arrives, let the display finish catching up before the answer is saved and drawn whole.
+// Stop and New chat end the wait at once, and a background tab (which runs no frames) is never waited on for long.
+function finishReveal(signal) {
+  return new Promise((resolve) => {
+    if (!turn || signal.aborted || !turn.text.trim() || (turn.state === "streaming" && turn.shown >= turn.text.length)) return resolve();
+    const done = () => { if (revealWaiter === done) revealWaiter = null; clearTimeout(timer); signal.removeEventListener("abort", done); resolve(); };
+    const timer = setTimeout(done, 2500);
+    signal.addEventListener("abort", done, { once: true });
+    revealWaiter = done;
+    scheduleLive();
+  });
 }
 
 // ---------- requests ----------
@@ -259,7 +286,7 @@ async function ask(message, { restore } = {}) {
   const controller = new AbortController();
   active = controller;
   error.hidden = true;
-  turn = { user: message, state: "thinking", text: "" };
+  turn = { user: message, state: "thinking", text: "", shown: 0 };
   busy(true);
   status.textContent = "Aivana is working…";
   renderTranscript();
@@ -307,6 +334,7 @@ async function ask(message, { restore } = {}) {
         }
       }
       if (!complete || !answer.trim()) throw new Error("The response ended before completion.");
+      await finishReveal(controller.signal); // the animation finishes before the answer is saved
     } else {
       const result = await response.json();
       if (typeof result.answer !== "string") throw new Error("The app received an unexpected response.");
@@ -328,6 +356,7 @@ async function ask(message, { restore } = {}) {
     announce(`Aivana replied. ${reply.slice(0, 2000)}`);
   } catch (failure) {
     if (frame) { cancelAnimationFrame(frame); frame = 0; }
+    revealWaiter = null;
     if (controller.signal.aborted) { if (controller.stopped) keepStopped(); return; }
     const refused = failure instanceof Refused;
     error.textContent = refused ? failure.message

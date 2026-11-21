@@ -94,7 +94,7 @@ test("starter: invalid requests never reach the SDK", async (t) => {
 
 test("starter: fixed static routes never serve credentials or server files", async (t) => {
   const app = await fixture(t, (_entry, res) => answer(res));
-  for (const path of ["/", "/app.js", "/styles.css", "/assets/aivana-logo.avif", "/assets/aivana-sparkle.avif", "/conversation.mjs", "/markdown.mjs", "/highlight.mjs", "/render.mjs"]) {
+  for (const path of ["/", "/app.js", "/styles.css", "/assets/aivana-logo.avif", "/assets/aivana-sparkle.avif", "/conversation.mjs", "/markdown.mjs", "/highlight.mjs", "/render.mjs", "/typing.mjs"]) {
     const response = await fetch(`${app.origin}${path}`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");

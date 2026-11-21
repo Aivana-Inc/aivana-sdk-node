@@ -8,7 +8,14 @@
 import { parseMarkdown } from "./markdown.mjs";
 import { highlight, languageFor } from "./highlight.mjs";
 
-const HEADING_TAG = { 1: "h3", 2: "h4", 3: "h5", 4: "h6", 5: "h6", 6: "h6" }; // the message label is the h2
+// Headings in an answer sit below the message label (an h2) and never skip a level: the first is an h3 whatever
+// its Markdown level, and each later one is at most one level deeper than the one before. Size still follows the
+// Markdown level (the md-hN class).
+const headingTag = (level, options) => {
+  const tag = Math.min(level + 2, options.lastHeading + 1, 6);
+  options.lastHeading = tag;
+  return `h${tag}`;
+};
 
 /** Copy text to the clipboard. Resolves true on success, false if the browser refused. */
 export async function copyText(text, doc = document) {
@@ -103,7 +110,7 @@ function blocks(doc, list, options, tight = false) {
       if (tight) out.push(...inline(doc, b.children)); // inside a tight list item the text sits directly in the <li>
       else { const p = el(doc, "p"); p.append(...inline(doc, b.children)); out.push(p); }
     } else if (b.type === "heading") {
-      const h = el(doc, HEADING_TAG[b.level], `md-h${Math.min(b.level, 4)}`);
+      const h = el(doc, headingTag(b.level, options), `md-h${Math.min(b.level, 4)}`);
       h.append(...inline(doc, b.children));
       out.push(h);
     } else if (b.type === "code") out.push(codeBlock(doc, b, options));
@@ -140,6 +147,6 @@ function blocks(doc, list, options, tight = false) {
  */
 export function renderMarkdown(source, { doc = document, streaming = false } = {}) {
   const fragment = doc.createDocumentFragment();
-  fragment.append(...blocks(doc, parseMarkdown(source), { streaming }));
+  fragment.append(...blocks(doc, parseMarkdown(source), { streaming, lastHeading: 2 }));
   return fragment;
 }

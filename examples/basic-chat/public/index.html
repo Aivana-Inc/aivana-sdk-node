@@ -12,7 +12,7 @@
   <body>
     <div class="app">
       <header class="header">
-        <a class="brand" href="https://aivana.ai/" target="_blank" rel="noreferrer" aria-label="Aivana website">
+        <a class="brand" href="https://aivana.ai/" target="_blank" rel="noreferrer">
           <img src="/assets/aivana-logo.avif" alt="Aivana" width="112" height="32" />
           <span class="tag">Chat starter</span>
         </a>
@@ -23,12 +23,13 @@
         </nav>
       </header>
       <main>
+        <h1 class="sr-only">Basic AI Chat, an Aivana chat starter</h1>
         <section class="chat" aria-label="Basic AI Chat">
           <div class="transcript-wrap">
             <div id="transcript" class="transcript" role="log" aria-label="Conversation" aria-live="off">
               <div id="empty" class="empty">
                 <p id="empty-kicker" class="kicker"><img src="/assets/aivana-sparkle.avif" alt="" width="20" height="20" /><span id="empty-kicker-text">Build with Aivana Intelligence</span></p>
-                <h1 id="empty-title">Your AI chat starter is ready.</h1>
+                <h2 id="empty-title" class="empty-title">Your AI chat starter is ready.</h2>
                 <p id="empty-text" class="lede">Experiment with intelligent responses, real-time streaming, and configurable AI behavior.</p>
               </div>
             </div>
@@ -85,7 +86,7 @@
               <button id="stop" class="stop" type="button" hidden aria-label="Stop generating" title="Stop generating"><span aria-hidden="true">■</span></button>
               <button id="send" disabled class="primary" type="submit" aria-label="Send message"><span aria-hidden="true">↑</span></button>
             </form>
-            <div id="suggestions" class="suggestions" aria-label="Ideas to get started">
+            <div id="suggestions" class="suggestions" role="group" aria-label="Ideas to get started">
               <button class="suggestion" type="button" data-prompt="Explain how large language models work as if I were new to the subject. Use an analogy and a short list of the key ideas.">Explain a complex topic</button>
               <button class="suggestion" type="button" data-prompt="Write a small JavaScript function that debounces another function. Show a short example of using it and explain how it works.">Generate sample code</button>
               <button class="suggestion" type="button" data-prompt="Compare server-side rendering and client-side rendering for a content website. Use a table and end with a recommendation.">Compare two approaches</button>

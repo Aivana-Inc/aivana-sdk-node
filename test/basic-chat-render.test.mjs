@@ -73,6 +73,19 @@ test("structure: a numbered list keeps its start, a table scrolls in a labelled 
   assert.ok(!tags("# one\n## two\n### three").includes("h1") && !tags("# x").includes("h2"));
 });
 
+test("headings in an answer never skip a level, whatever Markdown levels the answer uses", () => {
+  const levels = (md) => { const found = []; walk(render(md), (n) => { if (/^h[3-6]$/.test(n.tagName)) found.push(Number(n.tagName[1])); }); return found; };
+  assert.deepEqual(levels("### three first"), [3], "the first heading is an h3 (the message label is the h2)");
+  assert.deepEqual(levels("## a\n\n##### b\n\n###### c"), [3, 4, 5]);
+  assert.deepEqual(levels("# a\n\n## b\n\n### c\n\n#### d"), [3, 4, 5, 6]);
+  assert.deepEqual(levels("###### deep\n\n# shallow\n\n###### deep again"), [3, 3, 4], "going back up is allowed, going down is one step at a time");
+  for (const md of ["# a\n#### b\n## c\n###### d\n# e", "> ### quoted\n\n- ## in list\n\n#### z"]) {
+    const found = levels(md);
+    assert.equal(found[0], 3);
+    found.forEach((level, i) => { if (i) assert.ok(level <= found[i - 1] + 1, `${md.replace(/\n/g, "|")} -> ${found.join(",")}`); });
+  }
+});
+
 test("no file in public/ can build HTML or run strings as code, and the page has no inline script, style or handler", () => {
   const dir = new URL("../examples/basic-chat/public/", import.meta.url);
   const forbidden = /\b(?:innerHTML|outerHTML|insertAdjacentHTML|createContextualFragment|DOMParser|document\.write|srcdoc)\b|\beval\s*\(|new\s+Function\b|setAttribute\(\s*["'](?:style|on\w+)["']/;

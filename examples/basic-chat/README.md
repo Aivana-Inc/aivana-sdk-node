@@ -1,6 +1,6 @@
 # Basic AI Chat
 
-A small browser chat application using the **released `@aivana/sdk` 0.7.1**.
+A small browser chat application using the **released `@aivana/sdk` 0.8.0**.
 Send a message, get an Aivana answer, then ask a follow-up. The API key stays on the
 Node.js server. There is no frontend build step, account system or database.
 

@@ -1,6 +1,6 @@
 # Basic AI Chat
 
-A small browser chat application using the **released `@aivana/sdk` 0.7.1**.
+A small browser chat application using the **released `@aivana/sdk`**.
 Send a message, get an Aivana answer, then ask a follow-up. The API key stays on the
 Node.js server. There is no frontend build step, account system or database.
 
@@ -154,6 +154,20 @@ Open **http://127.0.0.1:3006**. Enter a message and press Send. Ask a follow-up,
 Stop to stop waiting, or New chat to reset. Enter inserts a new line;
 Ctrl+Enter / Command+Enter sends. Change `PORT` if 3006 is already occupied.
 Restart after editing `.env`. Existing environment variables override that file.
+
+## Streaming and chat settings
+
+The browser defaults to **Stream responses live**, using the SDK's `generateStream()` method. Text appears progressively. An incomplete stream or provider error is shown as a failed response and is **not** added to conversation history. Stop cancels the request; work already accepted by the API may still consume credit. Turn off streaming to compare the original whole-response behavior.
+
+Without an imported Blueprint, use the settings panel to choose intelligence effort (Auto/Low/Medium/High), output length (400/800/1600 tokens), and whether web search is allowed. These options are validated server-side and are not persisted. **When an Agent Kit Blueprint is loaded, the settings panel is locked** so the starter cannot silently override its configuration.
+
+### First-run verification
+
+1. Run `node setup.mjs`, `npm ci`, and `npm run doctor`. Doctor checks configuration without making a paid request.
+2. Start the app with `npm start`, send a short prompt, and confirm that text appears incrementally with streaming enabled.
+3. Ask a follow-up to verify conversation context. Switch streaming off and send another prompt to verify non-streaming mode.
+4. Try effort and web-search settings only if you have sufficient credits. Stop a request and verify the interrupted response is not added to history.
+5. For automated two-turn live verification, run `node --env-file=.env verify-live.mjs` (uses account credit).
 
 ## How it works
 

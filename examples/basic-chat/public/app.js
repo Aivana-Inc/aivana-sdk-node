@@ -35,9 +35,9 @@ themeButton.addEventListener("click", () => {
 systemTheme.addEventListener("change", themeLabel);
 themeLabel();
 
-function bubble(role, content, incomplete = false) {
+function bubble(role, content, incomplete = null) {
   const article = document.createElement("article");
-  article.className = `message ${role}${incomplete ? " incomplete" : ""}`;
+  article.className = `message ${role}${incomplete ? ` incomplete ${incomplete}` : ""}`;
   const label = document.createElement("h2");
   label.textContent = role === "user" ? "You" : "Aivana";
   const text = document.createElement("p");
@@ -46,14 +46,16 @@ function bubble(role, content, incomplete = false) {
   if (incomplete) {
     const note = document.createElement("p");
     note.className = "incomplete-note";
-    note.textContent = "Incomplete. This partial answer was not added to the conversation.";
+    note.textContent = incomplete === "stopped"
+      ? "Stopped. This partial answer was not added to the conversation."
+      : "Incomplete. This partial answer was not added to the conversation.";
     article.append(note);
   }
   return article;
 }
 
-// `incomplete` marks a partial answer from a failed stream: shown so nothing the person saw is lost, never saved.
-function render(pending, partial = "", incomplete = false) {
+// `incomplete` ("failed" or "stopped") marks a partial answer: shown so nothing the person saw is lost, never saved.
+function render(pending, partial = "", incomplete = null) {
   const hasMessages = Boolean(pending || history.length);
   chat.classList.toggle("has-messages", hasMessages);
   suggestions.hidden = hasMessages;
@@ -86,7 +88,9 @@ form.addEventListener("submit", async (event) => {
   busy(true);
   status.textContent = "Aivana is working…";
   render(message);
-  let answer = ""; // Outside the try so a failed stream can still show what had already arrived.
+  let answer = ""; // Outside the try so a failed or stopped stream can still show what had already arrived.
+  // Stop keeps the partial text on screen; New chat also aborts but must clear everything, so only Stop sets `stopped`.
+  const keepStopped = () => { if (answer.trim()) render(message, answer, "stopped"); else render(); };
   try {
     const useStream = streaming.checked;
     const response = await fetch(useStream ? "/api/chat/stream" : "/api/chat", {
@@ -131,7 +135,7 @@ form.addEventListener("submit", async (event) => {
       answer = result.answer;
       nextContext = result.context ?? {};
     }
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted) { if (controller.stopped) keepStopped(); return; }
     history = recentHistory([...displayHistory, { role: "user", content: message }, { role: "assistant", content: answer }]);
     context = nextContext;
     input.value = "";
@@ -139,13 +143,13 @@ form.addEventListener("submit", async (event) => {
     status.textContent = "";
     render();
   } catch (failure) {
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted) { if (controller.stopped) keepStopped(); return; }
     error.textContent = failure instanceof TypeError ? "The connection was interrupted. Aivana may have accepted the request, and it was not sent again automatically." : failure.message;
     error.hidden = false;
     status.textContent = "";
     // A failed turn never enters the next request's history and the draft stays editable, but text the person
     // already watched arrive stays on screen, marked incomplete, until their next message or New chat.
-    if (answer.trim()) render(message, answer, true);
+    if (answer.trim()) render(message, answer, "failed");
     else render();
   } finally {
     if (active === controller) { active = undefined; busy(false); input.focus(); }
@@ -160,9 +164,10 @@ input.addEventListener("keydown", (event) => {
 });
 
 stop.addEventListener("click", () => {
+  // The submit handler redraws once the cancelled request settles, keeping any text that had already arrived.
+  if (active) active.stopped = true;
   active?.abort();
   status.textContent = "Stopped waiting. An accepted request may still use credit.";
-  render();
 });
 
 document.querySelector("#reset").addEventListener("click", () => {

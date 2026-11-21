@@ -157,7 +157,7 @@ Restart after editing `.env`. Existing environment variables override that file.
 
 ## Streaming and chat settings
 
-The browser defaults to **Stream responses live**, using the SDK's `generateStream()` method. Text appears progressively. If a stream fails partway, the text that had already arrived stays on screen, marked incomplete, so nothing you watched appear is lost. It is **not** added to conversation history and is not sent with your next message; your next message or New chat clears it. Stop cancels the request; work already accepted by the API may still consume credit. Turn off streaming to compare the original whole-response behavior.
+The browser defaults to **Stream responses live**, using the SDK's `generateStream()` method. Text appears progressively. If a stream fails partway, the text that had already arrived stays on screen, marked incomplete, so nothing you watched appear is lost. It is **not** added to conversation history and is not sent with your next message; your next message or New chat clears it. Stop cancels the request and keeps the text that had already arrived on screen, marked stopped; like a failed stream it is not added to conversation history. New chat clears everything. Work already accepted by the API may still consume credit. Turn off streaming to compare the original whole-response behavior.
 
 Without an imported Blueprint, use the settings panel to choose intelligence effort (Auto/Low/Medium/High), output length (400/800/1600 tokens), and whether web search is allowed. These options are validated server-side and are not persisted. **When an Agent Kit Blueprint is loaded, the settings panel is locked** so the starter cannot silently override its configuration.
 

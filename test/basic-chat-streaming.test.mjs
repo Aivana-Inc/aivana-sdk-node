@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { createChatServer } from "../examples/basic-chat/app.mjs";
 
 test("chat starter streams deltas, sends terminal completion, and validates overrides", async (t) => {
@@ -55,4 +56,64 @@ test("chat starter never reports an interrupted stream as successful", async (t)
   const events = (await response.text()).trim().split("\n").map(line => JSON.parse(line));
   assert.deepEqual(events.map(event => event.event), ["delta", "error"]);
   assert.doesNotMatch(JSON.stringify(events), /provider failed/);
+});
+
+async function start(t, client, options = {}) {
+  const server = createChatServer({ client, ...options });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const post = (path, body) => fetch(origin + path, {
+    method: "POST", headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  return { post };
+}
+const events = async response => (await response.text()).trim().split("\n").map(line => JSON.parse(line));
+
+test("chat starter treats a stream that ends without a done event as a failure", async t => {
+  const { post } = await start(t, {
+    async generate() { throw new Error("unused"); },
+    async *generateStream() { yield { event: "delta", data: { text: "cut off" } }; },
+  });
+  const seen = await events(await post("/api/chat/stream", { message: "test" }));
+  assert.deepEqual(seen.map(e => e.event), ["delta", "error"]);
+});
+
+test("chat starter treats a stream with no text as a failure even when done arrives", async t => {
+  const { post } = await start(t, {
+    async generate() { throw new Error("unused"); },
+    async *generateStream() { yield { event: "done", data: {} }; },
+  });
+  assert.deepEqual((await events(await post("/api/chat/stream", { message: "test" }))).map(e => e.event), ["error"]);
+});
+
+test("a loaded Blueprint locks the chat settings on both routes and keeps its own options", async t => {
+  const blueprint = JSON.parse(await readFile(new URL("./fixtures/basic-chat/agent-kit-definition.json", import.meta.url), "utf8"));
+  const calls = [];
+  const { post } = await start(t, {
+    async generate(_p, options) { calls.push(options); return { answer: "ok" }; },
+    async *generateStream(_p, options) { calls.push(options); yield { event: "delta", data: { text: "ok" } }; yield { event: "done", data: {} }; },
+  }, { blueprint });
+  for (const path of ["/api/chat", "/api/chat/stream"]) {
+    const refused = await post(path, { message: "Hello", settings: { effort: "high" } });
+    assert.equal(refused.status, 400, path);
+  }
+  assert.equal(calls.length, 0, "a refused override never reaches the SDK");
+  const accepted = await post("/api/chat/stream", { message: "Hello", settings: {} });
+  assert.equal(accepted.status, 200);
+  assert.deepEqual((await events(accepted)).map(e => e.event), ["delta", "done"]);
+  assert.equal(calls.length, 1);
+});
+
+test("the non-streaming route applies validated settings and refuses unsupported ones", async t => {
+  const calls = [];
+  const { post } = await start(t, { async generate(_p, options) { calls.push(options); return { answer: "ok" }; } });
+  assert.equal((await post("/api/chat", { message: "Hi", settings: { effort: "low", maxTokens: 1600, webSearch: true } })).status, 200);
+  assert.equal(calls[0].effort, "low");
+  assert.equal(calls[0].maxTokens, 1600);
+  assert.equal(calls[0].webSearch, true);
+  for (const settings of [{ effort: "extreme" }, { maxTokens: 5 }, { webSearch: "yes" }, []]) {
+    assert.equal((await post("/api/chat", { message: "Hi", settings })).status, 400, JSON.stringify(settings));
+  }
+  assert.equal(calls.length, 1);
 });

@@ -92,6 +92,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The suite includes the Basic AI Chat starter's tests, which start the starter and import the released SDK from
+      # its own node_modules (the same step ci.yml has). Without this, `npm test` fails with ERR_MODULE_NOT_FOUND
+      # "Cannot find package '@aivana/sdk'": the first release that included the starter, v0.8.0, stopped here.
+      - name: Install the Basic AI Chat starter
+        run: npm ci --prefix examples/basic-chat
+
       # There is no build step — the package ships plain ESM source. Run the
       # offline tests instead so a broken tag never reaches the registry.
       - name: Test

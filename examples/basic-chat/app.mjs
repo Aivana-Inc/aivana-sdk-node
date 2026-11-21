@@ -22,7 +22,7 @@ function invalid(message = "Check your message and start a new chat if its histo
 
 function validate(value) {
   if (!value || typeof value !== "object" || Array.isArray(value) ||
-      Object.keys(value).some((key) => !["message", "history", "context"].includes(key)) ||
+      Object.keys(value).some((key) => !["message", "history", "context", "settings"].includes(key)) ||
       typeof value.message !== "string" || !value.message.trim() || value.message.length > LIMITS.messageChars) {
     throw invalid(`Enter a message of 1 to ${LIMITS.messageChars.toLocaleString("en-US")} characters.`);
   }
@@ -43,7 +43,13 @@ function validate(value) {
   for (const [key, max] of [["previousIntent", 256], ["pendingAction", 8_000]]) {
     if (context[key] !== undefined && (typeof context[key] !== "string" || context[key].length > max)) throw invalid();
   }
-  return { message: value.message.trim(), history: history.map(({ role, content }) => ({ role, content })), context };
+  const settings = value.settings ?? {};
+  if (!settings || typeof settings !== "object" || Array.isArray(settings) ||
+      Object.keys(settings).some(key => !["effort", "webSearch", "maxTokens"].includes(key)) ||
+      (settings.effort !== undefined && !["auto", "low", "medium", "high"].includes(settings.effort)) ||
+      (settings.webSearch !== undefined && typeof settings.webSearch !== "boolean") ||
+      (settings.maxTokens !== undefined && ![400, 800, 1600].includes(settings.maxTokens))) throw invalid("Choose supported chat settings.");
+  return { message: value.message.trim(), history: history.map(({ role, content }) => ({ role, content })), context, settings };
 }
 
 function json(res, status, body) {
@@ -100,7 +106,7 @@ export function createChatServer({ client, blueprint = null, timeoutMs = 120_000
       return res.end(asset.data);
     }
     if (path === "/api/config" && req.method === "GET") return json(res, 200, publicConfig);
-    if (path !== "/api/chat") return json(res, 404, { error: { code: "not_found", message: "Not found." } });
+    if (path !== "/api/chat" && path !== "/api/chat/stream") return json(res, 404, { error: { code: "not_found", message: "Not found." } });
     if (req.method !== "POST") { res.setHeader("Allow", "POST"); return json(res, 405, { error: { code: "method_not_allowed", message: "Use POST for chat." } }); }
     if (req.headers.origin !== `http://${req.headers.host}` || req.headers["sec-fetch-site"] === "cross-site") {
       return json(res, 403, { error: { code: "forbidden", message: "Send messages from this app's local page." } });
@@ -117,13 +123,41 @@ export function createChatServer({ client, blueprint = null, timeoutMs = 120_000
     const disconnected = () => { if (!res.writableEnded) controller.abort(); };
     res.once("close", disconnected);
     try {
-      const { message, history, context } = validate(await readBody(req));
+      const { message, history, context, settings } = validate(await readBody(req));
+      if (blueprint !== null && Object.keys(settings).length) throw invalid("Imported Blueprint settings are locked. Remove chat overrides.");
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
-      const result = await client.generate(null, {
-        ...profile.options,
+      const requestOptions = {
+        ...profile.options, ...(blueprint === null ? settings : {}),
         messages: [...(profile.history === "session" ? history : []), { role: "user", content: message }],
         ...(profile.history === "session" ? context : {}), signal: controller.signal,
-      });
+      };
+      if (path === "/api/chat/stream") {
+        res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8", "X-Accel-Buffering": "no", "Cache-Control": "no-store" });
+        let answer = "", finished = false, nextContext = {};
+        const sendEvent = (event, data) => { if (!res.destroyed && !res.writableEnded) res.write(JSON.stringify({ event, data }) + "\n"); };
+        try {
+          for await (const chunk of client.generateStream(null, requestOptions)) {
+            if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
+            if (chunk.event === "delta" && typeof chunk.data?.text === "string") {
+              answer += chunk.data.text;
+              if (answer.length > 16_000) throw new Error("Answer exceeded starter limit");
+              sendEvent("delta", { text: chunk.data.text });
+            } else if (chunk.event === "done") {
+              finished = true;
+              if (profile.history === "session" && typeof chunk.data?.intent?.name === "string" && chunk.data.intent.name.length <= 256) nextContext.previousIntent = chunk.data.intent.name;
+              if (profile.history === "session" && typeof chunk.data?.pending_action === "string" && chunk.data.pending_action.length <= 8_000) nextContext.pendingAction = chunk.data.pending_action;
+            } else if (chunk.event === "error") {
+              throw new Error("The upstream stream reported an error");
+            }
+          }
+          if (!finished || !answer.trim()) throw new Error("Incomplete streamed answer");
+          sendEvent("done", { context: nextContext });
+        } catch {
+          sendEvent("error", { message: "The response was interrupted. It may have used credit; no automatic retry was made." });
+        } finally { res.end(); }
+        return;
+      }
+      const result = await client.generate(null, requestOptions);
       if (controller.signal.aborted) throw new DOMException("Cancelled", "AbortError");
       if (typeof result?.answer !== "string" || !result.answer.trim() || result.answer.length > 16_000) {
         throw new Error("Invalid answer");

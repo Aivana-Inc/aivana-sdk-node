@@ -116,3 +116,15 @@ test("every run step of the composite action names a shell (GitHub refuses the a
 test("the composite action declares itself composite", () => {
   assert.match(action, /\nruns:\n  using: composite\n/);
 });
+
+test("the publish job installs the Chat starter's dependencies before it runs the suite, as ci.yml does (v0.8.0 stopped here)", () => {
+  const steps = publishJob.split(/\n      - name: /).slice(1).map((st) => ({ name: st.split("\n")[0], text: st }));
+  const names = steps.map((st) => st.name);
+  const install = names.indexOf("Install the Basic AI Chat starter");
+  const test = names.indexOf("Test");
+  assert.ok(install >= 0, "the publish job does not install examples/basic-chat");
+  assert.ok(test > install, "the starter must be installed before the suite runs");
+  assert.match(steps[install].text, /npm ci --prefix examples\/basic-chat/);
+  // the same command the repository's own CI uses, so the two cannot disagree about what the suite needs
+  assert.match(code(read("workflows/ci.yml")), /npm ci --prefix examples\/basic-chat/);
+});

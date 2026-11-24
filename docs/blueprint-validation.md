@@ -41,3 +41,30 @@ SDK-maintainer approval and production API verification remain required before p
 release. No package, production deployment or release was published by this work.
 
 See [integration and repeat instructions](blueprint-invocation.md).
+
+## Run against the merged API, November 24, 2026
+
+The API half (aivana-intelligence-api#400, merged) now exists, so this SDK was driven against it
+for the first time. Not a deployed environment: the real API application ran on loopback under
+uvicorn with its real middleware, routes, admission, billing and Blueprint store, a governed
+organization and a real API key; only the model engine's answer was faked, as in the API's own
+`script/test_blueprint_invocation.py`. The real SDK (Node 22) made the calls over actual HTTP.
+
+Checked and passing:
+
+- A pinned version returns the resolved `blueprint` reference.
+- `latest` names the version that ran.
+- Streaming: the `done` frame carries the resolved Blueprint.
+- A missing Blueprint (unknown id, missing version) is `blueprint_not_found`, never reported as
+  "unsupported by this API".
+- A settings override, version `0` and `"Latest"` are refused client-side.
+- No key is a 401.
+- An API without the routes (the router's own 404, as an older task in a rolling deploy
+  answers) raises `UnsupportedAPIError` (`blueprint_invocation_unsupported`) and nothing else is
+  sent: no fallback to ordinary Generate.
+
+The full suite after merging current main (0.8.1: automatic rate-limit retries, which Blueprint
+calls deliberately bypass): 404 passed, 3 skipped, 0 failed; the TypeScript declaration check passes.
+
+Still not proved: a run against a DEPLOYED environment, a real model's answer, and the
+rolling-deploy 404 on a real deploy. Those remain release gates, with SDK-maintainer review.

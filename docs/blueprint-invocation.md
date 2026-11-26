@@ -1,12 +1,11 @@
-# Saved Blueprint invocation — unreleased candidate
+# Saved Blueprint invocation
 
-Implements the SDK portion of [API #367](https://github.com/Aivana-Inc/aivana-intelligence-api/issues/367)
-and [Iteration 6 SDK integration](https://trello.com/c/0Rb6idgP).
-These methods are candidate code, not an available published release. Do not publish or
-enable them until the API routes are deployed and verified in production and SDK maintainers approve release.
+SDK support for running a saved Blueprint by id and version: the SDK portion of
+[API #367](https://github.com/Aivana-Inc/aivana-intelligence-api/issues/367).
 
-Create and save the Blueprint in AI Studio. Invocation uses only its ID, an explicit
-version and runtime input; management from scoped API keys belongs to API #366.
+Create and save the Blueprint in your workspace first. Invocation uses only its ID, an explicit
+version and runtime input; management from scoped API keys is a separate feature
+([API #366](https://github.com/Aivana-Inc/aivana-intelligence-api/issues/366)).
 
 ## Contract
 
@@ -27,9 +26,9 @@ version and runtime input; management from scoped API keys belongs to API #366.
   raise, and a stream ending without done is reported as incomplete. Stop/cancel releases
   the response; no saved settings or conversation state are fetched or inferred client-side.
 
-## Candidate examples
+## Examples
 
-From this source checkout, configure the approved environment and a saved Blueprint:
+From this source checkout, configure the environment and a saved Blueprint:
 `AIVANA_API_KEY`, `AIVANA_API_BASE`, `AIVANA_BLUEPRINT_ID`, `AIVANA_BLUEPRINT_VERSION`.
 Do not put keys in source files or logs. Each example run can consume normal generation credit.
 
@@ -49,9 +48,9 @@ for await (const chunk of client.blueprints.stream({ id: 'bp_example', version: 
 
 Pass an AbortSignal as `signal` to either method; streaming keeps cancellation and
 the configured timeout active until the body finishes. Breaking the loop cancels it.
-The example intentionally requires an API base instead of guessing the test environment.
+The example intentionally requires an API base instead of guessing an environment.
 
-## Repeatable checks and release gate
+## Repeatable checks
 
 ```sh
 npm ci
@@ -65,11 +64,16 @@ npm pack --dry-run
 Tests capture the request path, auth, runtime body, errors, done reference and stream
 completion; they do not prove server authorization, persistence, billing or deployment.
 
-Before release, Person 1/API owner must supply a deployed candidate, a synthetic workspace,
-a saved Blueprint and its version, and authorized test configuration. Run both examples
-normally and streaming with a pinned version and explicit latest. Record the resolved
-reference, request IDs, outcomes and date; verify missing/foreign versions, invalid
-credentials, insufficient scope and unsupported routes without generation fallback.
-Confirm the API's isolation and billing gates, then get SDK-maintainer review and production
-API verification. Only afterwards update AI Studio Docs (cURL, Python, Node.js), bump the
-SDK/CLI version together following RELEASING.md, and publish. This change does not publish.
+## Before releasing a version
+
+[blueprint-validation.md](blueprint-validation.md) records what has and has not been checked against a
+real, deployed API. A maintainer releasing a version that includes these methods confirms, against the
+environment being released:
+
+- a saved synthetic Blueprint with two versions runs normally and streaming, pinned and explicit
+  `latest`, and the response names the resolved reference;
+- a missing or foreign Blueprint is `blueprint_not_found`, bad credentials and a missing scope are
+  refused, and an API without the routes raises `UnsupportedAPIError`, with no fallback to Generate;
+- the API's isolation and billing behave as for the equivalent Generate request.
+
+Then bump the SDK and CLI version together and publish, following [RELEASING.md](../RELEASING.md).

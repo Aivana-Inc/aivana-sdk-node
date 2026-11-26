@@ -1,4 +1,9 @@
-# Blueprint SDK validation — November 11, 2026
+# Blueprint SDK validation
+
+Sections are dated and kept as the record of what was true then; the newest result is at the bottom.
+The first sections describe November 11, when no API had the routes, and are superseded by the later ones.
+
+## November 11, 2026
 
 Scope: [Iteration 6 SDK card](https://trello.com/c/0Rb6idgP), SDK portion of API #367.
 Windows, Node.js 22.14.0. Both SDK repositories were freshly cloned and then
@@ -31,12 +36,11 @@ returned HTTP **404**, mapped to **blueprint_invocation_unsupported**, on Novemb
 No fallback request was sent. This checks unavailable-route handling; it does not
 demonstrate a successful Blueprint execution or independently audit server billing.
 
-## Completion gate still pending
+## Completion gate (pending on November 11; see the later sections)
 
 Person 1/API owner must deploy the candidate routes and provide an authorized saved
 synthetic Blueprint/version. Then run the examples against that candidate and record
 success, resolved version, authorization/isolation and API billing acceptance evidence.
-The Trello card remains incomplete until its live candidate acceptance requirement is met.
 SDK-maintainer approval and production API verification remain required before public
 release. No package, production deployment or release was published by this work.
 
@@ -68,3 +72,25 @@ calls deliberately bypass): 404 passed, 3 skipped, 0 failed; the TypeScript decl
 
 Still not proved: a run against a DEPLOYED environment, a real model's answer, and the
 rolling-deploy 404 on a real deploy. Those remain release gates, with SDK-maintainer review.
+
+## Run against the development API, November 24, 2026
+
+Environment: the development API at `https://dev-developers.aivana.ai`, after the API change that adds
+the routes (aivana-intelligence-api#400) was deployed there by its normal pipeline that day. The deployed
+revision identifier was not recorded. A scoped, spend-limited development key from a synthetic workspace
+was used and never printed. Only requests for a deliberately nonexistent Blueprint id were sent, so
+nothing was generated or charged. The SDK was run from the head of the pull request that added it.
+
+Passing, from this SDK against the deployed API:
+
+- Pinned version 1, `latest`, and the streaming route each answered `blueprint_not_found`: the routes
+  are deployed and Blueprint storage is configured. None was reported as `UnsupportedAPIError`.
+  Request ids: `req_f3434b605bb334306216cca4`, `req_1ea7949c48e248d45429f955`, `req_5026e7f0d0445b4fbcddbfd5`.
+- Version `0`, `"Latest"` and a saved-settings override are refused client-side with nothing sent.
+
+Direct probes of the same routes returned `422` for a malformed version, with the API's own wording.
+
+**Not verified as of this record:** a successful pinned or `latest` run, normal or streaming, against a
+saved Blueprint on a deployed environment; workspace isolation, member permissions and billing on a
+deployed environment; the routes on production; a real model's answer; the rolling-deploy 404 on a real
+deploy. Update this section with the date and request ids when any of these is run.

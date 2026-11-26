@@ -1,4 +1,5 @@
-// Candidate source checkout only. Do not publish/enable before API rollout verification.
+// Runs a saved Blueprint by id and version. Needs AIVANA_API_KEY, AIVANA_API_BASE, AIVANA_BLUEPRINT_ID and
+// AIVANA_BLUEPRINT_VERSION (a number or 'latest'). Each run can consume normal generation credit.
 import Aivana from '../../src/index.js';
 
 const { AIVANA_API_KEY, AIVANA_API_BASE, AIVANA_BLUEPRINT_ID, AIVANA_BLUEPRINT_VERSION } = process.env;

@@ -458,12 +458,37 @@ setTimeout(() => ac.abort(), 5000);
 await client.generate("...", { signal: ac.signal });
 ```
 
-## Unreleased candidate: saved Blueprint invocation
+## Saved Blueprint invocation
 
-The source branch includes `client.blueprints.generate` and `client.blueprints.stream`.
-They require a saved Blueprint ID and explicit version and never fall back to ordinary Generate.
-See the [candidate integration guide](docs/blueprint-invocation.md) for examples, checks
-and the API deployment and maintainer release gates. This is not a published capability.
+Run a saved, versioned Blueprint from your workspace by its id. You send only the input; the
+instructions and settings come from the saved version, so every call uses the same configuration
+until you choose another version.
+
+```js
+const result = await client.blueprints.generate({ id: 'bp_...', version: 3, prompt: 'Draft a reply.' });
+console.log(result.answer);
+console.log(result.blueprint); // { id, version }: the version that actually ran
+
+for await (const chunk of client.blueprints.stream({ id: 'bp_...', version: 'latest', prompt: 'Draft a reply.' })) {
+  if (chunk.event === 'delta') process.stdout.write(chunk.data.text);
+  if (chunk.event === 'done') console.log(chunk.data.blueprint);
+}
+```
+
+- **A version is always explicit:** a positive whole number, or `'latest'` on purpose. Nothing defaults
+  to latest, and `result.blueprint.version` always names the version that ran. Pin a number in production.
+- **Only runtime input is accepted** (prompt or messages, attachments, metadata and the other
+  per-request fields). Saved settings cannot be overridden: an unknown option, or a saved setting
+  such as `system`, is refused before anything is sent.
+- **No automatic retries, and no fallback to ordinary Generate.** Your code decides whether to send a
+  Blueprint call again.
+- **Two different 404s:** a missing Blueprint or version is an error with code `blueprint_not_found`;
+  an API that does not offer Blueprint invocation raises `UnsupportedAPIError`
+  (`blueprint_invocation_unsupported`).
+- A Blueprint call is charged and limited like the equivalent Generate request.
+
+Pass an `AbortSignal` as `signal` to either method. See the [guide](docs/blueprint-invocation.md)
+for the full contract, examples and checks.
 
 ## License
 

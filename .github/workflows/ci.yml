@@ -36,6 +36,8 @@ jobs:
 
       - run: npm test
 
+      - run: npm run test:types
+
       # Catches a missing file in package.json "files" before a release does.
       - name: Verify the published tarball contents
         if: matrix.node-version == 24
